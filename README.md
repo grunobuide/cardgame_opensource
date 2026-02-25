@@ -1,43 +1,52 @@
-# Open Balatro Prototype
+# Open Balatro Prototype (Lua)
 
-A minimal open-source starter inspired by Balatro.
+This project now uses Lua only:
 
-## What this prototype includes
+- `main.lua`: minimal playable LÖVE loop
+- `src/game_logic.lua`: pure game rules/state module
 
-- 52-card deck with draw/discard loop.
-- Select up to 5 cards and score poker hands.
-- Blind-style target score that scales by ante.
-- Limited hands and discards per ante.
-- Minimal dependencies for testing; pure HTML/CSS/JS for the game.
+## Prerequisites
 
-## Run locally
+- [LÖVE 11.x](https://love2d.org/)
+- Optional: Lua interpreter (for command-line smoke tests)
 
-```bash
-python3 -m http.server 8080
-```
-
-Then open <http://localhost:8080>.
-
-## Testing
-
-Install dependencies and run tests:
+## Run
 
 ```bash
-npm install
-npm test
+love .
 ```
 
-For test coverage:
+## Controls
+
+- Mouse: click cards to select/deselect, click buttons to act
+- `1..8`: quick-select card index
+- `Space`: play selected cards
+- `D`: discard selected cards
+- `R`: new run
+- `T`: toggle dark/light sprite set
+
+## How To Test
+
+### 1. Logic smoke test (fast, no game window)
 
 ```bash
-npm run test:coverage
+lua scripts/smoke_test.lua
 ```
 
-Tests include unit tests for game logic and integration tests for game flow.
+Expected output: `All smoke tests passed.`
 
-## Next ideas
+### 2. Manual gameplay verification in LÖVE
 
-- Joker cards and deck modifiers.
-- Shop, economy, and rerolls.
-- Seeded runs and persistent unlocks.
-- Better balancing and effects.
+Run `love .` and verify:
+
+1. A new run starts with `Ante 1`, `Hands 4`, `Discards 3`, and 8 cards in hand.
+2. Selecting 1 to 5 cards allows play; selecting 0 cards shows a validation message.
+3. Discarding selected cards decreases discards and refills hand back to 8.
+4. Adding jokers changes projected and actual score behavior when hands are played.
+5. `T` toggles between light and dark card sprite sets.
+6. Clearing a target advances ante and resets hands/discards.
+
+## Notes
+
+- The old JavaScript/HTML/CSS and Node test stack were removed.
+- Card art is loaded from `Cards/Cards_Dark` and `Cards/Cards`.
