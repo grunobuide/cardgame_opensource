@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Open Balatro Prototype</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="game">
+      <header>
+        <h1>Open Balatro Prototype</h1>
+        <p class="subtitle">A tiny open-source poker roguelike starter.</p>
+      </header>
+
+      <section class="stats" aria-label="Run stats">
+        <div><span>Ante</span><strong id="ante">1</strong></div>
+        <div><span>Target</span><strong id="target">200</strong></div>
+        <div><span>Score</span><strong id="score">0</strong></div>
+        <div><span>Hands</span><strong id="hands">4</strong></div>
+        <div><span>Discards</span><strong id="discards">2</strong></div>
+      </section>
+
+      <section class="controls">
+        <button id="play-btn">Play Selected</button>
+        <button id="discard-btn">Discard Selected</button>
+        <button id="new-run-btn" class="secondary">New Run</button>
+      </section>
+
+      <p id="message" class="message" role="status" aria-live="polite"></p>
+
+      <section>
+        <h2>Your Hand</h2>
+        <div id="hand" class="hand" aria-label="Cards in hand"></div>
+      </section>
+
+      <section>
+        <h2>Hand Scoring</h2>
+        <ul class="scoring">
+          <li>High Card: 5 ×1</li>
+          <li>Pair: 10 ×2</li>
+          <li>Two Pair: 20 ×2</li>
+          <li>Three of a Kind: 30 ×3</li>
+          <li>Straight: 30 ×4</li>
+          <li>Flush: 35 ×4</li>
+          <li>Full House: 40 ×4</li>
+          <li>Four of a Kind: 60 ×7</li>
+          <li>Straight Flush: 100 ×8</li>
+          <li>Royal Flush: 150 ×10</li>
+        </ul>
+      </section>
+    </main>
+
+    <script src="game.js"></script>
+  </body>
+</html>
