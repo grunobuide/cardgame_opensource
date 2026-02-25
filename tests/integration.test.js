@@ -4,7 +4,10 @@ const path = require('path');
 const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
 document.body.innerHTML = html;
 
-const { state, newRun, playSelected, discardSelected, toggleSelection } = require('../game.js');
+const game = require('../game.js');
+const { state, newRun, playSelected, discardSelected, toggleSelection } = game;
+
+game.disableAnimation = true;
 
 describe('Card Game Integration Tests', () => {
   beforeEach(() => {
@@ -31,7 +34,7 @@ describe('Card Game Integration Tests', () => {
     expect(state.selected.has(0)).toBe(false);
   });
 
-  test('playSelected should require exactly 5 cards', () => {
+  test('playSelected should require exactly 5 cards', async () => {
     // Select less than 5
     toggleSelection(0);
     toggleSelection(1);
@@ -42,7 +45,7 @@ describe('Card Game Integration Tests', () => {
     toggleSelection(2);
     toggleSelection(3);
     toggleSelection(4);
-    playSelected();
+    await playSelected();
     expect(state.hands).toBe(3); // Decreased
   });
 
@@ -54,14 +57,14 @@ describe('Card Game Integration Tests', () => {
     expect(state.hand).toHaveLength(initialHandLength); // Replenished
   });
 
-  test('should handle game over on no hands left', () => {
+  test('should handle game over on no hands left', async () => {
     // Force hands to 1
     state.hands = 1;
     // Select 5 cards
     for (let i = 0; i < 5; i++) {
       toggleSelection(i);
     }
-    playSelected();
+    await playSelected();
     expect(state.gameOver).toBe(true);
   });
 });

@@ -6,7 +6,7 @@
   "scripts": {
     "test": "jest",
     "test:coverage": "jest --coverage",
-    "start": "python3 -m http.server 8000"
+    "start": "python3 -m http.server 8080"
   },
   "devDependencies": {
     "jest": "^29.7.0",

@@ -15,18 +15,32 @@ const HAND_TYPES = {
   ROYAL_FLUSH: { label: "Royal Flush", chips: 150, mult: 10 },
 };
 
+const JOKERS = {
+  JOKER: { name: "Joker", effect: " +4 Mult", image: "Cards/Cards_Dark/Joker.png", ability: (hand, handType) => ({ mult: 4 }) },
+  GREEDY_JOKER: { name: "Greedy Joker", effect: " +4 Mult if played hand has a Diamond", image: "Cards/Cards_Dark/Joker2.png", ability: (hand, handType) => {
+    const hasDiamond = hand.some(card => card.suit === '♦');
+    return hasDiamond ? { mult: 4 } : {};
+  }},
+  PAIR_JOKER: { name: "Pair Joker", effect: " +2 Mult for each Pair in hand", image: "Cards/Cards_Dark/Joker.png", ability: (hand, handType) => {
+    const ranks = hand.map(card => card.rank);
+    const pairs = ranks.filter(rank => ranks.filter(r => r === rank).length === 2).length / 2;
+    return { mult: pairs * 2 };
+  }},
+};
+
 const state = {
   ante: 1,
   score: 0,
   hands: 4,
-  discards: 2,
+  discards: 4,
   deck: [],
   hand: [],
   selected: new Set(),
+  jokers: [],
   gameOver: false,
 };
 
-let ui = {};
+let disableAnimation = false;
 
 if (typeof document !== 'undefined' && document.getElementById) {
   ui = {
@@ -36,10 +50,14 @@ if (typeof document !== 'undefined' && document.getElementById) {
     hands: document.getElementById("hands"),
     discards: document.getElementById("discards"),
     hand: document.getElementById("hand"),
+    jokers: document.getElementById("jokers"),
+    calculation: document.getElementById("calculation"),
     message: document.getElementById("message"),
     playBtn: document.getElementById("play-btn"),
     discardBtn: document.getElementById("discard-btn"),
     newRunBtn: document.getElementById("new-run-btn"),
+    addJokerBtn: document.getElementById("add-joker-btn"),
+    setHandBtn: document.getElementById("set-hand-btn"),
   };
 }
 
@@ -167,6 +185,63 @@ function endRun(message) {
   setMessage(`${message} Click New Run to play again.`);
 }
 
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function animateCalculation(chosen, handType) {
+  ui.calculation.style.display = 'block';
+  ui.calculation.innerHTML = '';
+
+  let currentChips = handType.chips;
+  let currentMult = handType.mult;
+  let totalScore = currentChips * currentMult;
+
+  // Base
+  ui.calculation.innerHTML += `${handType.label}: ${handType.chips} × ${handType.mult} = ${totalScore}<br>`;
+  if (!disableAnimation) await sleep(500);
+
+  // Jokers
+  for (const jokerKey of state.jokers) {
+    const joker = JOKERS[jokerKey];
+    if (joker) {
+      const effect = joker.ability(chosen, handType);
+      const oldTotal = totalScore;
+      if (effect.chips) {
+        currentChips += effect.chips;
+        totalScore = currentChips * currentMult;
+        ui.calculation.innerHTML += `+ ${joker.name}: +${effect.chips} chips = ${currentChips} × ${currentMult} = ${totalScore}<br>`;
+      }
+      if (effect.mult) {
+        currentMult += effect.mult;
+        totalScore = currentChips * currentMult;
+        ui.calculation.innerHTML += `+ ${joker.name}: +${effect.mult} mult = ${currentChips} × ${currentMult} = ${totalScore}<br>`;
+      }
+      if (!disableAnimation) await sleep(500);
+    }
+  }
+
+  // Total
+  ui.calculation.innerHTML += `<strong>Total: +${totalScore}</strong>`;
+  if (!disableAnimation) await sleep(1000);
+
+  // Hide and update
+  ui.calculation.style.display = 'none';
+  state.score += totalScore;
+  state.hands -= 1;
+  removeSelectedCards();
+
+  if (state.score >= targetScore()) {
+    nextAnte();
+  } else if (state.hands === 0) {
+    endRun("You busted this blind.");
+  } else {
+    setMessage(`${handType.label}! +${totalScore}.`);
+  }
+
+  render();
+}
+
 function playSelected() {
   if (state.gameOver) return;
   if (state.hands <= 0) return;
@@ -178,20 +253,7 @@ function playSelected() {
   }
 
   const handType = evaluateHand(chosen);
-  const handScore = handType.chips * handType.mult;
-  state.score += handScore;
-  state.hands -= 1;
-  removeSelectedCards();
-
-  if (state.score >= targetScore()) {
-    nextAnte();
-  } else if (state.hands === 0) {
-    endRun("You busted this blind.");
-  } else {
-    setMessage(`${handType.label}! +${handScore} (${handType.chips} ×${handType.mult}).`);
-  }
-
-  render();
+  return animateCalculation(chosen, handType);
 }
 
 function discardSelected() {
@@ -213,16 +275,15 @@ function discardSelected() {
 }
 
 function getCardImageSrc(card) {
-  const rankMap = {
-    2: '2', 3: '3', 4: '4', 5: '5', 6: '6', 7: '7', 8: '8', 9: '9', 10: '10',
-    J: 'jack', Q: 'queen', K: 'king', A: 'ace'
-  };
+  // Map suit symbols to abbreviations
   const suitMap = {
-    '♠': 'spades', '♥': 'hearts', '♦': 'diamonds', '♣': 'clubs'
+    '♠': 'S',  // Spades
+    '♥': 'H',  // Hearts
+    '♦': 'D',  // Diamonds
+    '♣': 'C'   // Clubs
   };
-  const rankName = rankMap[card.rank];
-  const suitName = suitMap[card.suit];
-  return `assets/cards/${rankName}_of_${suitName}.svg`;
+  const suitAbbr = suitMap[card.suit];
+  return `Cards/Cards_Dark/${suitAbbr}${card.rank}.png`;
 }
 
 function render() {
@@ -243,6 +304,17 @@ function render() {
     button.addEventListener("click", () => toggleSelection(index));
     ui.hand.appendChild(button);
   });
+
+  ui.jokers.innerHTML = "";
+  state.jokers.forEach((jokerKey) => {
+    const joker = JOKERS[jokerKey];
+    if (joker) {
+      const div = document.createElement("div");
+      div.className = "joker";
+      div.innerHTML = `<img src="cards_sprites/Cards/${joker.image}" alt="${joker.name}"><br><strong>${joker.name}</strong><br>${joker.effect}`;
+      ui.jokers.appendChild(div);
+    }
+  });
 }
 
 function newRun() {
@@ -252,6 +324,7 @@ function newRun() {
   state.discards = 2;
   state.deck = buildDeck();
   state.hand = [];
+  state.jokers = [];
   clearSelection();
   state.gameOver = false;
   drawCards(8);
@@ -259,15 +332,45 @@ function newRun() {
   render();
 }
 
+function addJoker() {
+  const jokerKeys = Object.keys(JOKERS);
+  const randomJoker = jokerKeys[Math.floor(Math.random() * jokerKeys.length)];
+  if (state.jokers.length < 5) {
+    state.jokers.push(randomJoker);
+    setMessage(`Added ${JOKERS[randomJoker].name}!`);
+    render();
+  } else {
+    setMessage("Max 5 Jokers!");
+  }
+}
+
+function setHandToRoyalFlush() {
+  state.hand = [
+    { rank: 10, suit: '♠' },
+    { rank: 'J', suit: '♠' },
+    { rank: 'Q', suit: '♠' },
+    { rank: 'K', suit: '♠' },
+    { rank: 'A', suit: '♠' },
+    { rank: 2, suit: '♥' },
+    { rank: 3, suit: '♥' },
+    { rank: 4, suit: '♥' },
+  ];
+  clearSelection();
+  setMessage("Hand set to Royal Flush + extras!");
+  render();
+}
+
 // Exports for testing
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { SUITS, RANKS, HAND_TYPES, state, buildDeck, rankToValue, evaluateHand, getCardImageSrc, newRun, playSelected, discardSelected, toggleSelection };
+  module.exports = { SUITS, RANKS, HAND_TYPES, JOKERS, state, buildDeck, rankToValue, evaluateHand, getCardImageSrc, newRun, playSelected, discardSelected, toggleSelection, addJoker, setHandToRoyalFlush, animateCalculation, disableAnimation };
 }
 
 if (typeof document !== 'undefined' && document.getElementById) {
   ui.playBtn.addEventListener("click", playSelected);
   ui.discardBtn.addEventListener("click", discardSelected);
   ui.newRunBtn.addEventListener("click", newRun);
+  ui.addJokerBtn.addEventListener("click", addJoker);
+  ui.setHandBtn.addEventListener("click", setHandToRoyalFlush);
 
   newRun();
 }

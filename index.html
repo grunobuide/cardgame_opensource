@@ -29,9 +29,22 @@
 
       <p id="message" class="message" role="status" aria-live="polite"></p>
 
+      <div id="calculation" class="calculation" style="display: none;"></div>
+
       <section>
         <h2>Your Hand</h2>
         <div id="hand" class="hand" aria-label="Cards in hand"></div>
+      </section>
+
+      <section>
+        <h2>Jokers</h2>
+        <div id="jokers" class="jokers"></div>
+      </section>
+
+      <section id="debug-section">
+        <h2>Debug (Testing Mode)</h2>
+        <button id="add-joker-btn">Add Joker</button>
+        <button id="set-hand-btn">Set Hand to Royal Flush</button>
       </section>
 
       <section>

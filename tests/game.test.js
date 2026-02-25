@@ -4,7 +4,7 @@ const path = require('path');
 const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
 document.body.innerHTML = html;
 
-const { SUITS, RANKS, HAND_TYPES, buildDeck, rankToValue, evaluateHand, getCardImageSrc } = require('../game.js');
+const { SUITS, RANKS, HAND_TYPES, JOKERS, buildDeck, rankToValue, evaluateHand, getCardImageSrc } = require('../game.js');
 
 describe('Card Game Unit Tests', () => {
   describe('buildDeck', () => {
@@ -162,15 +162,15 @@ describe('Card Game Unit Tests', () => {
 
   describe('getCardImageSrc', () => {
     test('should return correct image path for numbered cards', () => {
-      expect(getCardImageSrc({ rank: 10, suit: '♠' })).toBe('assets/cards/10_of_spades.svg');
-      expect(getCardImageSrc({ rank: 2, suit: '♥' })).toBe('assets/cards/2_of_hearts.svg');
+      expect(getCardImageSrc({ rank: 10, suit: '♠' })).toBe('Cards/Cards_Dark/S10.png');
+      expect(getCardImageSrc({ rank: 2, suit: '♥' })).toBe('Cards/Cards_Dark/H2.png');
     });
 
     test('should return correct image path for face cards', () => {
-      expect(getCardImageSrc({ rank: 'J', suit: '♦' })).toBe('assets/cards/jack_of_diamonds.svg');
-      expect(getCardImageSrc({ rank: 'Q', suit: '♣' })).toBe('assets/cards/queen_of_clubs.svg');
-      expect(getCardImageSrc({ rank: 'K', suit: '♠' })).toBe('assets/cards/king_of_spades.svg');
-      expect(getCardImageSrc({ rank: 'A', suit: '♥' })).toBe('assets/cards/ace_of_hearts.svg');
+      expect(getCardImageSrc({ rank: 'J', suit: '♦' })).toBe('Cards/Cards_Dark/DJ.png');
+      expect(getCardImageSrc({ rank: 'Q', suit: '♣' })).toBe('Cards/Cards_Dark/CQ.png');
+      expect(getCardImageSrc({ rank: 'K', suit: '♠' })).toBe('Cards/Cards_Dark/SK.png');
+      expect(getCardImageSrc({ rank: 'A', suit: '♥' })).toBe('Cards/Cards_Dark/HA.png');
     });
   });
 });

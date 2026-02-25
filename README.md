@@ -13,10 +13,10 @@ A minimal open-source starter inspired by Balatro.
 ## Run locally
 
 ```bash
-python3 -m http.server 8000
+python3 -m http.server 8080
 ```
 
-Then open <http://localhost:8000>.
+Then open <http://localhost:8080>.
 
 ## Testing
 

@@ -24,6 +24,9 @@ body {
   max-width: 960px;
   margin: 0 auto;
   padding: 1.25rem;
+  background-color: rgba(255, 255, 255, 0.05);
+  border-radius: 1rem;
+  box-shadow: 0 0 20px rgba(0,0,0,0.5);
 }
 
 h1,
@@ -93,10 +96,22 @@ button:disabled {
   color: #ffd28a;
 }
 
+.calculation {
+  background: var(--panel);
+  padding: 1rem;
+  border-radius: 0.5rem;
+  margin: 0.4rem 0 1rem;
+  font-family: monospace;
+  font-size: 1.1rem;
+  line-height: 1.6;
+}
+
 .hand {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
-  gap: 0.6rem;
+  grid-template-columns: repeat(auto-fit, minmax(60px, 1fr));
+  gap: 0.4rem;
+  max-width: 500px;
+  margin: 0 auto;
 }
 
 .card {
@@ -112,6 +127,8 @@ button:disabled {
   width: 100%;
   height: auto;
   display: block;
+  image-rendering: crisp-edges;
+  image-rendering: pixelated;
 }
 
 .card:hover {
@@ -126,6 +143,28 @@ button:disabled {
 .card .suit {
   display: block;
   font-size: 1.4rem;
+}
+
+.jokers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.joker {
+  background: var(--panel);
+  padding: 0.5rem;
+  border-radius: 0.5rem;
+  text-align: center;
+  font-size: 0.9rem;
+}
+
+.joker img {
+  width: 45px;
+  height: auto;
+  margin-bottom: 0.5rem;
+  image-rendering: crisp-edges;
+  image-rendering: pixelated;
 }
 
 .scoring {
