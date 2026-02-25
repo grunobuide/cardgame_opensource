@@ -19,7 +19,7 @@ describe('Card Game Integration Tests', () => {
     expect(state.ante).toBe(1);
     expect(state.score).toBe(0);
     expect(state.hands).toBe(4);
-    expect(state.discards).toBe(2);
+    expect(state.discards).toBe(3);
     expect(state.hand).toHaveLength(8);
     expect(state.deck).toHaveLength(44); // 52 - 8
     expect(state.selected.size).toBe(0);
@@ -34,26 +34,19 @@ describe('Card Game Integration Tests', () => {
     expect(state.selected.has(0)).toBe(false);
   });
 
-  test('playSelected should require exactly 5 cards', async () => {
-    // Select less than 5
+  test('playSelected should allow playing fewer than 5 cards', async () => {
+    // Select 2 cards
     toggleSelection(0);
     toggleSelection(1);
-    playSelected();
-    expect(state.hands).toBe(4); // No change
-
-    // Select 5
-    toggleSelection(2);
-    toggleSelection(3);
-    toggleSelection(4);
     await playSelected();
     expect(state.hands).toBe(3); // Decreased
   });
 
-  test('discardSelected should discard cards and replenish', () => {
+  test('discardSelected should discard cards and replenish', async () => {
     const initialHandLength = state.hand.length;
     toggleSelection(0);
-    discardSelected();
-    expect(state.discards).toBe(1);
+    await discardSelected();
+    expect(state.discards).toBe(2);
     expect(state.hand).toHaveLength(initialHandLength); // Replenished
   });
 

@@ -1,6 +1,9 @@
 const SUITS = ["♠", "♥", "♦", "♣"];
 const RANKS = [2, 3, 4, 5, 6, 7, 8, 9, 10, "J", "Q", "K", "A"];
 const ANTE_TARGETS = [200, 400, 700];
+const THEME_STORAGE_KEY = "balatrin-theme";
+const STARTING_HANDS = 4;
+const STARTING_DISCARDS = 3;
 
 const HAND_TYPES = {
   HIGH_CARD: { label: "High Card", chips: 5, mult: 1 },
@@ -16,12 +19,12 @@ const HAND_TYPES = {
 };
 
 const JOKERS = {
-  JOKER: { name: "Joker", effect: " +4 Mult", image: "Cards/Cards_Dark/Joker.png", ability: (hand, handType) => ({ mult: 4 }) },
-  GREEDY_JOKER: { name: "Greedy Joker", effect: " +4 Mult if played hand has a Diamond", image: "Cards/Cards_Dark/Joker2.png", ability: (hand, handType) => {
+  JOKER: { name: "Joker", rarity: "common", formula: "+4 Mult", effect: " +4 Mult", image: "Joker.png", ability: (hand, handType) => ({ mult: 4 }) },
+  GREEDY_JOKER: { name: "Greedy Joker", rarity: "uncommon", formula: "+4 Mult if at least one Diamond is played", effect: " +4 Mult if played hand has a Diamond", image: "Joker2.png", ability: (hand, handType) => {
     const hasDiamond = hand.some(card => card.suit === '♦');
     return hasDiamond ? { mult: 4 } : {};
   }},
-  PAIR_JOKER: { name: "Pair Joker", effect: " +2 Mult for each Pair in hand", image: "Cards/Cards_Dark/Joker.png", ability: (hand, handType) => {
+  PAIR_JOKER: { name: "Pair Joker", rarity: "rare", formula: "+2 Mult x number of pairs in played cards", effect: " +2 Mult for each Pair in hand", image: "Joker.png", ability: (hand, handType) => {
     const ranks = hand.map(card => card.rank);
     const pairs = ranks.filter(rank => ranks.filter(r => r === rank).length === 2).length / 2;
     return { mult: pairs * 2 };
@@ -31,8 +34,8 @@ const JOKERS = {
 const state = {
   ante: 1,
   score: 0,
-  hands: 4,
-  discards: 4,
+  hands: STARTING_HANDS,
+  discards: STARTING_DISCARDS,
   deck: [],
   hand: [],
   selected: new Set(),
@@ -41,6 +44,8 @@ const state = {
 };
 
 let disableAnimation = false;
+let handMutationId = 0;
+let lastRenderedHandMutationId = -1;
 
 if (typeof document !== 'undefined' && document.getElementById) {
   ui = {
@@ -51,13 +56,21 @@ if (typeof document !== 'undefined' && document.getElementById) {
     discards: document.getElementById("discards"),
     hand: document.getElementById("hand"),
     jokers: document.getElementById("jokers"),
+    scorePopups: document.getElementById("score-popups"),
     calculation: document.getElementById("calculation"),
     message: document.getElementById("message"),
+    previewHand: document.getElementById("preview-hand"),
+    previewBase: document.getElementById("preview-base"),
+    previewJokers: document.getElementById("preview-jokers"),
+    previewTotal: document.getElementById("preview-total"),
+    pressureLabel: document.getElementById("pressure-label"),
+    pressureFill: document.getElementById("pressure-fill"),
     playBtn: document.getElementById("play-btn"),
     discardBtn: document.getElementById("discard-btn"),
     newRunBtn: document.getElementById("new-run-btn"),
     addJokerBtn: document.getElementById("add-joker-btn"),
     setHandBtn: document.getElementById("set-hand-btn"),
+    themeToggleBtn: document.getElementById("theme-toggle-btn"),
   };
 }
 
@@ -76,6 +89,10 @@ function buildDeck() {
   return deck;
 }
 
+function bumpHandMutation() {
+  handMutationId += 1;
+}
+
 function targetScore() {
   return ANTE_TARGETS[state.ante - 1] || ANTE_TARGETS[ANTE_TARGETS.length - 1] + (state.ante - ANTE_TARGETS.length) * 300;
 }
@@ -86,6 +103,9 @@ function drawCards(count) {
       state.deck = buildDeck();
     }
     state.hand.push(state.deck.pop());
+  }
+  if (count > 0) {
+    bumpHandMutation();
   }
 }
 
@@ -98,6 +118,8 @@ function rankToValue(rank) {
 }
 
 function evaluateHand(cards) {
+  if (cards.length === 0) return HAND_TYPES.HIGH_CARD;
+
   const values = cards.map((card) => rankToValue(card.rank)).sort((a, b) => a - b);
   const suits = cards.map((card) => card.suit);
   const countByValue = new Map();
@@ -107,10 +129,11 @@ function evaluateHand(cards) {
 
   const counts = [...countByValue.values()].sort((a, b) => b - a);
   const uniqueValues = [...new Set(values)];
-  const isFlush = new Set(suits).size === 1;
+  const isFiveCardHand = cards.length === 5;
+  const isFlush = isFiveCardHand && new Set(suits).size === 1;
 
   let isStraight = false;
-  if (uniqueValues.length === 5) {
+  if (isFiveCardHand && uniqueValues.length === 5) {
     isStraight = uniqueValues[4] - uniqueValues[0] === 4;
     const wheel = [2, 3, 4, 5, 14];
     if (!isStraight && wheel.every((value, index) => uniqueValues[index] === value)) {
@@ -159,6 +182,9 @@ function removeSelectedCards() {
   for (const index of selectedIndices) {
     state.hand.splice(index, 1);
   }
+  if (selectedIndices.length > 0) {
+    bumpHandMutation();
+  }
   clearSelection();
   replenishHand();
   return chosen;
@@ -171,8 +197,8 @@ function setMessage(message) {
 function nextAnte() {
   state.ante += 1;
   state.score = 0;
-  state.hands = 4;
-  state.discards = 2;
+  state.hands = STARTING_HANDS;
+  state.discards = STARTING_DISCARDS;
   state.deck = buildDeck();
   state.hand = [];
   drawCards(8);
@@ -187,6 +213,117 @@ function endRun(message) {
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function animateSelectedCardsOut(mode) {
+  if (disableAnimation) return;
+  const selectedIndices = [...state.selected];
+  if (selectedIndices.length === 0) return;
+  const cardButtons = ui.hand ? Array.from(ui.hand.querySelectorAll(".card")) : [];
+  selectedIndices.forEach((index, order) => {
+    const cardButton = cardButtons[index];
+    if (cardButton) {
+      cardButton.classList.add("card-exit", mode === "discard" ? "discard" : "play");
+      cardButton.style.animationDelay = `${order * 45}ms`;
+    }
+  });
+  await sleep(280 + selectedIndices.length * 45);
+}
+
+function showScorePopup(scoreDelta) {
+  if (!ui.scorePopups || disableAnimation) return;
+  const popup = document.createElement("div");
+  popup.className = "score-popup";
+  popup.textContent = `+${scoreDelta}`;
+  ui.scorePopups.appendChild(popup);
+  popup.addEventListener("animationend", () => popup.remove(), { once: true });
+}
+
+function formatJokerBonus(effect) {
+  const parts = [];
+  if (effect.chips) parts.push(`+${effect.chips} chips`);
+  if (effect.mult) parts.push(`+${effect.mult} mult`);
+  return parts.join(", ") || "No bonus";
+}
+
+function calculateHandProjection(chosen) {
+  if (chosen.length === 0) {
+    return {
+      chosen,
+      handType: null,
+      baseChips: 0,
+      baseMult: 0,
+      baseTotal: 0,
+      total: 0,
+      jokerDetails: [],
+    };
+  }
+
+  const handType = evaluateHand(chosen);
+  const baseChips = handType.chips;
+  const baseMult = handType.mult;
+  let currentChips = baseChips;
+  let currentMult = baseMult;
+  const jokerDetails = [];
+
+  for (const jokerKey of state.jokers) {
+    const joker = JOKERS[jokerKey];
+    if (!joker) continue;
+    const effect = joker.ability(chosen, handType);
+    currentChips += effect.chips || 0;
+    currentMult += effect.mult || 0;
+    jokerDetails.push({ jokerKey, effect });
+  }
+
+  return {
+    chosen,
+    handType,
+    baseChips,
+    baseMult,
+    baseTotal: baseChips * baseMult,
+    total: currentChips * currentMult,
+    jokerDetails,
+  };
+}
+
+function updatePreviewHud(projection) {
+  if (!ui.previewHand || !ui.previewBase || !ui.previewJokers || !ui.previewTotal) return;
+  if (!projection.handType) {
+    ui.previewHand.textContent = "No cards selected";
+    ui.previewBase.textContent = "Base: -";
+    ui.previewJokers.textContent = "Jokers: -";
+    ui.previewTotal.textContent = "Projected: +0";
+    return;
+  }
+
+  ui.previewHand.textContent = `${projection.chosen.length} selected • ${projection.handType.label}`;
+  ui.previewBase.textContent = `Base: ${projection.baseChips} x ${projection.baseMult} = ${projection.baseTotal}`;
+  const jokerText = projection.jokerDetails.length > 0
+    ? projection.jokerDetails.map((detail) => {
+      const joker = JOKERS[detail.jokerKey];
+      return `${joker.name} (${formatJokerBonus(detail.effect)})`;
+    }).join(" | ")
+    : "No jokers";
+  ui.previewJokers.textContent = `Jokers: ${jokerText}`;
+  ui.previewTotal.textContent = `Projected: +${projection.total}`;
+}
+
+function updateBlindPressure() {
+  if (!ui.pressureFill || !ui.pressureLabel) return;
+  const target = targetScore();
+  const progress = Math.max(0, Math.min(state.score / target, 1));
+  ui.pressureFill.style.width = `${progress * 100}%`;
+  ui.pressureLabel.textContent = `${state.score} / ${target}`;
+  ui.pressureFill.classList.remove("risk-low", "risk-mid", "risk-high");
+  const nearFailure = state.hands <= 1 && progress < 0.9;
+  const moderateRisk = state.hands <= 2 && progress < 0.65;
+  if (nearFailure) {
+    ui.pressureFill.classList.add("risk-high");
+  } else if (moderateRisk) {
+    ui.pressureFill.classList.add("risk-mid");
+  } else {
+    ui.pressureFill.classList.add("risk-low");
+  }
 }
 
 async function animateCalculation(chosen, handType) {
@@ -206,7 +343,6 @@ async function animateCalculation(chosen, handType) {
     const joker = JOKERS[jokerKey];
     if (joker) {
       const effect = joker.ability(chosen, handType);
-      const oldTotal = totalScore;
       if (effect.chips) {
         currentChips += effect.chips;
         totalScore = currentChips * currentMult;
@@ -227,6 +363,8 @@ async function animateCalculation(chosen, handType) {
 
   // Hide and update
   ui.calculation.style.display = 'none';
+  showScorePopup(totalScore);
+  await animateSelectedCardsOut("play");
   state.score += totalScore;
   state.hands -= 1;
   removeSelectedCards();
@@ -247,8 +385,8 @@ function playSelected() {
   if (state.hands <= 0) return;
 
   const chosen = [...state.selected].map((index) => state.hand[index]);
-  if (chosen.length !== 5) {
-    setMessage("Select exactly 5 cards to play.");
+  if (chosen.length === 0) {
+    setMessage("Select at least 1 card to play.");
     return;
   }
 
@@ -256,7 +394,7 @@ function playSelected() {
   return animateCalculation(chosen, handType);
 }
 
-function discardSelected() {
+async function discardSelected() {
   if (state.gameOver) return;
   if (state.discards <= 0) {
     setMessage("No discards left this ante.");
@@ -268,25 +406,83 @@ function discardSelected() {
     return;
   }
 
+  await animateSelectedCardsOut("discard");
   removeSelectedCards();
   state.discards -= 1;
   setMessage("Discarded selected cards.");
   render();
 }
 
+function getTheme() {
+  if (typeof document === "undefined") return "dark";
+  return document.documentElement.dataset.theme || "dark";
+}
+
+function getSpriteSetPath() {
+  return getTheme() === "light" ? "Cards/Cards" : "Cards/Cards_Dark";
+}
+
+function rankToSpriteToken(rank) {
+  if (typeof rank === "number") return String(rank);
+  return rank;
+}
+
 function getCardImageSrc(card) {
-  // Map suit symbols to abbreviations
   const suitMap = {
-    '♠': 'S',  // Spades
-    '♥': 'H',  // Hearts
-    '♦': 'D',  // Diamonds
-    '♣': 'C'   // Clubs
+    '♠': 'S',
+    '♥': 'H',
+    '♦': 'D',
+    '♣': 'C'
   };
   const suitAbbr = suitMap[card.suit];
-  return `Cards/Cards_Dark/${suitAbbr}${card.rank}.png`;
+  return `${getSpriteSetPath()}/${suitAbbr}${rankToSpriteToken(card.rank)}.png`;
+}
+
+function getJokerImageSrc(joker) {
+  return `${getSpriteSetPath()}/${joker.image}`;
+}
+
+function applyTheme(theme) {
+  if (typeof document === "undefined") return;
+  const nextTheme = theme === "light" ? "light" : "dark";
+  document.documentElement.dataset.theme = nextTheme;
+  try {
+    window.localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
+  } catch (error) {
+    // Ignore storage restrictions in private/testing contexts.
+  }
+}
+
+function toggleTheme() {
+  const nextTheme = getTheme() === "dark" ? "light" : "dark";
+  applyTheme(nextTheme);
+  render();
+}
+
+function hydrateTheme() {
+  if (typeof document === "undefined") return;
+  let savedTheme = "dark";
+  try {
+    savedTheme = window.localStorage.getItem(THEME_STORAGE_KEY) || "dark";
+  } catch (error) {
+    savedTheme = "dark";
+  }
+  applyTheme(savedTheme);
+}
+
+function getJokerTooltipText(jokerKey, projection) {
+  const joker = JOKERS[jokerKey];
+  if (!joker) return "";
+  const detail = projection.jokerDetails.find((entry) => entry.jokerKey === jokerKey);
+  const currentBonus = detail ? formatJokerBonus(detail.effect) : "No bonus";
+  return `${joker.name} (${joker.rarity})\nFormula: ${joker.formula}\nCurrent: ${currentBonus}`;
 }
 
 function render() {
+  const chosen = [...state.selected].map((index) => state.hand[index]).filter(Boolean);
+  const projection = calculateHandProjection(chosen);
+  const shouldAnimateDeal = handMutationId !== lastRenderedHandMutationId;
+
   ui.ante.textContent = String(state.ante);
   ui.target.textContent = String(targetScore());
   ui.score.textContent = String(state.score);
@@ -294,24 +490,40 @@ function render() {
   ui.discards.textContent = String(state.discards);
   ui.playBtn.disabled = state.gameOver;
   ui.discardBtn.disabled = state.gameOver;
+  if (ui.themeToggleBtn) {
+    ui.themeToggleBtn.textContent = getTheme() === "dark" ? "Switch to Light" : "Switch to Dark";
+  }
+  updatePreviewHud(projection);
+  updateBlindPressure();
 
   ui.hand.innerHTML = "";
+  const midPoint = (state.hand.length - 1) / 2;
   state.hand.forEach((card, index) => {
+    const offsetFromCenter = index - midPoint;
     const button = document.createElement("button");
     button.className = `card ${state.selected.has(index) ? "selected" : ""}`;
+    if (shouldAnimateDeal && !disableAnimation) {
+      button.classList.add("card-deal");
+      button.style.animationDelay = `${index * 55}ms`;
+    }
+    button.style.setProperty("--fan-rotate", `${offsetFromCenter * 4.3}deg`);
+    button.style.setProperty("--fan-lift", `${Math.abs(offsetFromCenter) * 2.4}px`);
+    button.style.zIndex = String(index + 1);
     button.type = "button";
     button.innerHTML = `<img src="${getCardImageSrc(card)}" alt="${card.rank}${card.suit}">`;
     button.addEventListener("click", () => toggleSelection(index));
     ui.hand.appendChild(button);
   });
+  lastRenderedHandMutationId = handMutationId;
 
   ui.jokers.innerHTML = "";
   state.jokers.forEach((jokerKey) => {
     const joker = JOKERS[jokerKey];
     if (joker) {
       const div = document.createElement("div");
-      div.className = "joker";
-      div.innerHTML = `<img src="cards_sprites/Cards/${joker.image}" alt="${joker.name}"><br><strong>${joker.name}</strong><br>${joker.effect}`;
+      div.className = `joker rarity-${joker.rarity || "common"}`;
+      div.title = getJokerTooltipText(jokerKey, projection);
+      div.innerHTML = `<img src="${getJokerImageSrc(joker)}" alt="${joker.name}" onerror="this.style.display='none'"><strong>${joker.name}</strong><em>${joker.rarity || "common"}</em><span>${joker.effect}</span>`;
       ui.jokers.appendChild(div);
     }
   });
@@ -320,8 +532,8 @@ function render() {
 function newRun() {
   state.ante = 1;
   state.score = 0;
-  state.hands = 4;
-  state.discards = 2;
+  state.hands = STARTING_HANDS;
+  state.discards = STARTING_DISCARDS;
   state.deck = buildDeck();
   state.hand = [];
   state.jokers = [];
@@ -355,6 +567,7 @@ function setHandToRoyalFlush() {
     { rank: 3, suit: '♥' },
     { rank: 4, suit: '♥' },
   ];
+  bumpHandMutation();
   clearSelection();
   setMessage("Hand set to Royal Flush + extras!");
   render();
@@ -366,11 +579,15 @@ if (typeof module !== 'undefined' && module.exports) {
 }
 
 if (typeof document !== 'undefined' && document.getElementById) {
+  hydrateTheme();
   ui.playBtn.addEventListener("click", playSelected);
   ui.discardBtn.addEventListener("click", discardSelected);
   ui.newRunBtn.addEventListener("click", newRun);
   ui.addJokerBtn.addEventListener("click", addJoker);
   ui.setHandBtn.addEventListener("click", setHandToRoyalFlush);
+  if (ui.themeToggleBtn) {
+    ui.themeToggleBtn.addEventListener("click", toggleTheme);
+  }
 
   newRun();
 }

@@ -7,21 +7,43 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
+    <div class="table-glow" aria-hidden="true"></div>
     <main class="game">
-      <header>
-        <h1>Open Balatro Prototype</h1>
-        <p class="subtitle">A tiny open-source poker roguelike starter.</p>
+      <header class="topbar">
+        <div>
+          <h1>Open Balatro Prototype</h1>
+          <p class="subtitle">Build hands, chain Jokers, beat the blind.</p>
+        </div>
+        <button id="theme-toggle-btn" class="secondary" type="button">Switch to Light</button>
       </header>
 
-      <section class="stats" aria-label="Run stats">
+      <section class="stats panel" aria-label="Run stats">
         <div><span>Ante</span><strong id="ante">1</strong></div>
         <div><span>Target</span><strong id="target">200</strong></div>
         <div><span>Score</span><strong id="score">0</strong></div>
         <div><span>Hands</span><strong id="hands">4</strong></div>
-        <div><span>Discards</span><strong id="discards">2</strong></div>
+        <div><span>Discards</span><strong id="discards">3</strong></div>
       </section>
 
-      <section class="controls">
+      <section class="hud panel" aria-label="Hand preview">
+        <div class="preview">
+          <strong id="preview-hand">No cards selected</strong>
+          <span id="preview-base">Base: -</span>
+          <span id="preview-jokers">Jokers: -</span>
+          <span id="preview-total">Projected: +0</span>
+        </div>
+        <div class="pressure">
+          <div class="pressure-meta">
+            <span>Blind Pressure</span>
+            <strong id="pressure-label">0 / 200</strong>
+          </div>
+          <div class="pressure-track" aria-hidden="true">
+            <div id="pressure-fill" class="pressure-fill"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="controls panel">
         <button id="play-btn">Play Selected</button>
         <button id="discard-btn">Discard Selected</button>
         <button id="new-run-btn" class="secondary">New Run</button>
@@ -29,25 +51,26 @@
 
       <p id="message" class="message" role="status" aria-live="polite"></p>
 
-      <div id="calculation" class="calculation" style="display: none;"></div>
+      <div id="calculation" class="calculation panel" style="display: none;"></div>
 
-      <section>
+      <section class="panel">
         <h2>Your Hand</h2>
         <div id="hand" class="hand" aria-label="Cards in hand"></div>
+        <div id="score-popups" class="score-popups" aria-hidden="true"></div>
       </section>
 
-      <section>
+      <section class="panel">
         <h2>Jokers</h2>
         <div id="jokers" class="jokers"></div>
       </section>
 
-      <section id="debug-section">
+      <section id="debug-section" class="panel">
         <h2>Debug (Testing Mode)</h2>
         <button id="add-joker-btn">Add Joker</button>
         <button id="set-hand-btn">Set Hand to Royal Flush</button>
       </section>
 
-      <section>
+      <section class="panel">
         <h2>Hand Scoring</h2>
         <ul class="scoring">
           <li>High Card: 5 ×1</li>

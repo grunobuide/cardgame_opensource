@@ -104,6 +104,15 @@ describe('Card Game Unit Tests', () => {
       expect(evaluateHand(hand)).toBe(HAND_TYPES.FLUSH);
     });
 
+    test('should not evaluate Flush for fewer than 5 cards', () => {
+      const hand = [
+        { rank: 2, suit: '♠' },
+        { rank: 4, suit: '♠' },
+        { rank: 9, suit: '♠' }
+      ];
+      expect(evaluateHand(hand)).toBe(HAND_TYPES.HIGH_CARD);
+    });
+
     test('should evaluate Full House', () => {
       const hand = [
         { rank: 2, suit: '♠' },
