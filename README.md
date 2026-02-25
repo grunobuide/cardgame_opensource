@@ -8,7 +8,7 @@ A minimal open-source starter inspired by Balatro.
 - Select up to 5 cards and score poker hands.
 - Blind-style target score that scales by ante.
 - Limited hands and discards per ante.
-- No dependencies; pure HTML/CSS/JS.
+- Minimal dependencies for testing; pure HTML/CSS/JS for the game.
 
 ## Run locally
 
@@ -17,6 +17,23 @@ python3 -m http.server 8000
 ```
 
 Then open <http://localhost:8000>.
+
+## Testing
+
+Install dependencies and run tests:
+
+```bash
+npm install
+npm test
+```
+
+For test coverage:
+
+```bash
+npm run test:coverage
+```
+
+Tests include unit tests for game logic and integration tests for game flow.
 
 ## Next ideas
 

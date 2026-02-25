@@ -1,0 +1,22 @@
+{
+  "name": "cardgame-opensource",
+  "version": "1.0.0",
+  "description": "A minimal open-source Balatro-inspired card game prototype",
+  "main": "game.js",
+  "scripts": {
+    "test": "jest",
+    "test:coverage": "jest --coverage",
+    "start": "python3 -m http.server 8000"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "jest-environment-jsdom": "^29.7.0"
+  },
+  "jest": {
+    "testEnvironment": "jsdom",
+    "collectCoverageFrom": [
+      "game.js"
+    ],
+    "coverageReporters": ["text", "lcov", "html"]
+  }
+}

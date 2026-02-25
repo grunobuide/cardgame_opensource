@@ -26,18 +26,22 @@ const state = {
   gameOver: false,
 };
 
-const ui = {
-  ante: document.getElementById("ante"),
-  target: document.getElementById("target"),
-  score: document.getElementById("score"),
-  hands: document.getElementById("hands"),
-  discards: document.getElementById("discards"),
-  hand: document.getElementById("hand"),
-  message: document.getElementById("message"),
-  playBtn: document.getElementById("play-btn"),
-  discardBtn: document.getElementById("discard-btn"),
-  newRunBtn: document.getElementById("new-run-btn"),
-};
+let ui = {};
+
+if (typeof document !== 'undefined' && document.getElementById) {
+  ui = {
+    ante: document.getElementById("ante"),
+    target: document.getElementById("target"),
+    score: document.getElementById("score"),
+    hands: document.getElementById("hands"),
+    discards: document.getElementById("discards"),
+    hand: document.getElementById("hand"),
+    message: document.getElementById("message"),
+    playBtn: document.getElementById("play-btn"),
+    discardBtn: document.getElementById("discard-btn"),
+    newRunBtn: document.getElementById("new-run-btn"),
+  };
+}
 
 function buildDeck() {
   const deck = [];
@@ -208,6 +212,19 @@ function discardSelected() {
   render();
 }
 
+function getCardImageSrc(card) {
+  const rankMap = {
+    2: '2', 3: '3', 4: '4', 5: '5', 6: '6', 7: '7', 8: '8', 9: '9', 10: '10',
+    J: 'jack', Q: 'queen', K: 'king', A: 'ace'
+  };
+  const suitMap = {
+    '♠': 'spades', '♥': 'hearts', '♦': 'diamonds', '♣': 'clubs'
+  };
+  const rankName = rankMap[card.rank];
+  const suitName = suitMap[card.suit];
+  return `assets/cards/${rankName}_of_${suitName}.svg`;
+}
+
 function render() {
   ui.ante.textContent = String(state.ante);
   ui.target.textContent = String(targetScore());
@@ -222,7 +239,7 @@ function render() {
     const button = document.createElement("button");
     button.className = `card ${state.selected.has(index) ? "selected" : ""}`;
     button.type = "button";
-    button.innerHTML = `<span>${card.rank}</span><span class="suit">${card.suit}</span>`;
+    button.innerHTML = `<img src="${getCardImageSrc(card)}" alt="${card.rank}${card.suit}">`;
     button.addEventListener("click", () => toggleSelection(index));
     ui.hand.appendChild(button);
   });
@@ -242,8 +259,15 @@ function newRun() {
   render();
 }
 
-ui.playBtn.addEventListener("click", playSelected);
-ui.discardBtn.addEventListener("click", discardSelected);
-ui.newRunBtn.addEventListener("click", newRun);
+// Exports for testing
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { SUITS, RANKS, HAND_TYPES, state, buildDeck, rankToValue, evaluateHand, getCardImageSrc, newRun, playSelected, discardSelected, toggleSelection };
+}
 
-newRun();
+if (typeof document !== 'undefined' && document.getElementById) {
+  ui.playBtn.addEventListener("click", playSelected);
+  ui.discardBtn.addEventListener("click", discardSelected);
+  ui.newRunBtn.addEventListener("click", newRun);
+
+  newRun();
+}

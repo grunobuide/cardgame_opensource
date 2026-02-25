@@ -100,14 +100,18 @@ button:disabled {
 }
 
 .card {
-  background: linear-gradient(135deg, #f7f2ff, #d2bee7);
+  background: none;
   border-radius: 0.65rem;
-  color: #1d1530;
-  padding: 0.7rem;
   border: 3px solid transparent;
-  text-align: center;
-  font-weight: 700;
   transition: transform 90ms ease;
+  padding: 0;
+  overflow: hidden;
+}
+
+.card img {
+  width: 100%;
+  height: auto;
+  display: block;
 }
 
 .card:hover {
