@@ -56,7 +56,7 @@ Goal: high-confidence gameplay changes with fast regression feedback.
 
 - [x] `busted` unit/state suite for core logic
 - [x] CI on push/PR running smoke + busted tests
-- [ ] Deterministic simulation tests for multi-turn scenarios
+- [x] Deterministic simulation tests for multi-turn scenarios
 - [ ] Golden tests for projection outputs (joker combinations)
 - [ ] Regression tests for blind progression and economy phases
 - [ ] Lua version matrix in CI (`5.1`, `5.4`)

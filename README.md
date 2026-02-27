@@ -34,6 +34,8 @@ love .
 - `S`: sort hand by suit
 - `N`: sort hand by rank
 - `T`: toggle dark/light sprite set
+- `K`: open seed input mode
+- `G`: generate/apply a new seed and start a run
 - `Enter` / `Space` on result screen: start new run
 
 ## How To Test
@@ -66,11 +68,17 @@ Run only game-logic specs:
 busted spec/game_logic_spec.lua
 ```
 
+Run deterministic simulation specs (multi-turn seeded scenarios):
+
+```bash
+busted spec/simulation_spec.lua
+```
+
 ### 3. Manual gameplay verification in LÖVE
 
 Run `love .` and verify:
 
-1. A new run starts with `Ante 1`, `Hands 4`, `Discards 3`, and 8 cards in hand.
+1. A new run starts with `Ante 1`, `Hands 5`, `Discards 2`, and 8 cards in hand.
 2. Selecting 1 to 5 cards allows play; selecting 0 cards shows a validation message.
 3. Discarding selected cards decreases discards and refills hand back to 8.
 4. Adding jokers changes projected and actual score behavior when hands are played.
@@ -83,3 +91,4 @@ Run `love .` and verify:
 - The old JavaScript/HTML/CSS and Node test stack were removed.
 - Card art is loaded from `Cards/Cards_Dark` and `Cards/Cards`.
 - `main.lua` now includes queued card transitions with tweened play/discard/deal animations.
+- CI (`.github/workflows/lua-tests.yml`) runs both smoke test and full `busted` suite on push/PR.
