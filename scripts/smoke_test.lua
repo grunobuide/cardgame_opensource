@@ -16,8 +16,8 @@ local function run()
   local state = game.new_state()
 
   assert_equals(state.ante, 1, "ante should start at 1")
-  assert_equals(state.hands, 4, "hands should start at 4")
-  assert_equals(state.discards, 3, "discards should start at 3")
+  assert_equals(state.hands, game.STARTING_HANDS, "hands should start at configured value")
+  assert_equals(state.discards, game.STARTING_DISCARDS, "discards should start at configured value")
   assert_equals(#state.hand, 8, "hand should start with 8 cards")
   assert_equals(#state.deck, 44, "deck should have 44 cards after initial draw")
 
@@ -28,14 +28,14 @@ local function run()
 
   local discard_result = game.discard_selected(state)
   assert_true(discard_result.ok, "discard should succeed")
-  assert_equals(state.discards, 2, "discards should decrement")
+  assert_equals(state.discards, game.STARTING_DISCARDS - 1, "discards should decrement")
   assert_equals(#state.hand, 8, "hand should replenish to 8 after discard")
 
   game.toggle_selection(state, 1)
   game.toggle_selection(state, 2)
   local play_result = game.play_selected(state)
   assert_true(play_result.ok, "play should succeed with selected cards")
-  assert_equals(state.hands, 3, "hands should decrement after play")
+  assert_equals(state.hands, game.STARTING_HANDS - 1, "hands should decrement after play")
 
   game.set_hand_to_royal_flush(state)
   game.clear_selection(state)

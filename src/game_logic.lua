@@ -3,8 +3,14 @@ local M = {}
 M.SUITS = { "S", "H", "D", "C" }
 M.RANKS = { 2, 3, 4, 5, 6, 7, 8, 9, 10, "J", "Q", "K", "A" }
 M.ANTE_TARGETS = { 200, 400, 700 }
-M.STARTING_HANDS = 4
-M.STARTING_DISCARDS = 3
+M.MAX_ANTE = #M.ANTE_TARGETS
+M.BLINDS = {
+  { id = "small", label = "Small Blind", target_mult = 1.0 },
+  { id = "big", label = "Big Blind", target_mult = 1.65 },
+  { id = "boss", label = "Boss Blind", target_mult = 2.35 },
+}
+M.STARTING_HANDS = 5
+M.STARTING_DISCARDS = 2
 M.HAND_SIZE = 8
 M.MAX_SELECT = 5
 M.MAX_JOKERS = 5
@@ -24,6 +30,37 @@ M.HAND_TYPES = {
 
 local function default_rng(min, max)
   return math.random(min, max)
+end
+
+local function normalize_seed(seed)
+  local text = tostring(seed or "")
+  text = text:gsub("^%s+", ""):gsub("%s+$", "")
+  return text
+end
+
+function M.make_seeded_rng(seed)
+  local text = normalize_seed(seed)
+  if text == "" then
+    text = "default"
+  end
+
+  local state = 2166136261
+  for i = 1, #text do
+    state = (state * 16777619 + text:byte(i)) % 4294967296
+  end
+  if state == 0 then
+    state = 1
+  end
+
+  return function(min, max)
+    state = (1664525 * state + 1013904223) % 4294967296
+    local span = (max - min + 1)
+    local value = min + math.floor((state / 4294967296) * span)
+    if value > max then
+      value = max
+    end
+    return value
+  end
 end
 
 local function to_suit_code(suit)
@@ -100,6 +137,17 @@ function M.target_score(ante)
     return M.ANTE_TARGETS[target_ante]
   end
   return M.ANTE_TARGETS[#M.ANTE_TARGETS] + (target_ante - #M.ANTE_TARGETS) * 300
+end
+
+function M.current_blind(state)
+  local idx = state.blind_index or 1
+  return M.BLINDS[idx] or M.BLINDS[1]
+end
+
+function M.current_target(state)
+  local base = M.target_score(state.ante)
+  local blind = M.current_blind(state)
+  return math.floor((base * blind.target_mult) + 0.5)
 end
 
 function M.rank_to_value(rank)
@@ -258,9 +306,11 @@ M.JOKERS = {
   },
 }
 
-function M.new_state(rng)
+function M.new_state(rng, opts)
+  opts = opts or {}
   local state = {
     ante = 1,
+    blind_index = 1,
     score = 0,
     hands = M.STARTING_HANDS,
     discards = M.STARTING_DISCARDS,
@@ -269,11 +319,21 @@ function M.new_state(rng)
     selected = {},
     jokers = {},
     game_over = false,
+    run_won = false,
     message = "",
+    seed = normalize_seed(opts.seed),
     rng = rng or default_rng,
   }
   M.new_run(state)
   return state
+end
+
+function M.set_seed(state, seed, rng)
+  state.seed = normalize_seed(seed)
+  if state.seed == "" then
+    state.seed = "random"
+  end
+  state.rng = rng or M.make_seeded_rng(state.seed)
 end
 
 function M.draw_cards(state, count)
@@ -365,6 +425,7 @@ end
 
 function M.next_ante(state)
   state.ante = state.ante + 1
+  state.blind_index = 1
   state.score = 0
   state.hands = M.STARTING_HANDS
   state.discards = M.STARTING_DISCARDS
@@ -375,8 +436,33 @@ function M.next_ante(state)
   state.message = ("Blind cleared! Welcome to Ante %d."):format(state.ante)
 end
 
+function M.next_blind(state)
+  if state.blind_index >= #M.BLINDS then
+    if state.ante >= M.MAX_ANTE then
+      state.game_over = true
+      state.run_won = true
+      state.message = "You defeated the final boss blind! Run complete."
+      return "run_won"
+    end
+    M.next_ante(state)
+    return "next_ante"
+  end
+
+  state.blind_index = state.blind_index + 1
+  state.score = 0
+  state.hands = M.STARTING_HANDS
+  state.discards = M.STARTING_DISCARDS
+  state.deck = M.build_deck(state.rng)
+  state.hand = {}
+  M.draw_cards(state, M.HAND_SIZE)
+  M.clear_selection(state)
+  state.message = ("Blind cleared! %s begins."):format(M.current_blind(state).label)
+  return "next_blind"
+end
+
 function M.end_run(state, message)
   state.game_over = true
+  state.run_won = false
   state.message = ("%s Click New Run to play again."):format(message)
 end
 
@@ -398,10 +484,10 @@ function M.play_selected(state)
   state.hands = state.hands - 1
   M.remove_selected_cards(state)
 
-  local target = M.target_score(state.ante)
+  local target = M.current_target(state)
   if state.score >= target then
-    M.next_ante(state)
-    return { ok = true, event = "next_ante", projection = projection }
+    local event = M.next_blind(state)
+    return { ok = true, event = event, projection = projection }
   end
   if state.hands == 0 then
     M.end_run(state, "You busted this blind.")
@@ -470,6 +556,7 @@ end
 
 function M.new_run(state)
   state.ante = 1
+  state.blind_index = 1
   state.score = 0
   state.hands = M.STARTING_HANDS
   state.discards = M.STARTING_DISCARDS
@@ -478,6 +565,7 @@ function M.new_run(state)
   state.jokers = {}
   M.clear_selection(state)
   state.game_over = false
+  state.run_won = false
   M.draw_cards(state, M.HAND_SIZE)
   state.message = "Select up to 5 cards and play a poker hand."
 end
@@ -495,6 +583,63 @@ function M.joker_sprite_path(joker_key, theme)
     return nil
   end
   return ("%s/%s"):format(folder, joker.image)
+end
+
+function M.sort_hand(state, mode)
+  local selected_cards = {}
+  for index, is_selected in pairs(state.selected) do
+    if is_selected and state.hand[index] then
+      selected_cards[state.hand[index]] = true
+    end
+  end
+
+  local rank_weight = {
+    J = 11,
+    Q = 12,
+    K = 13,
+    A = 14,
+  }
+  local suit_weight = {
+    S = 1,
+    H = 2,
+    D = 3,
+    C = 4,
+  }
+
+  table.sort(state.hand, function(a, b)
+    local suit_a = to_suit_code(a.suit)
+    local suit_b = to_suit_code(b.suit)
+    local rank_a = type(a.rank) == "number" and a.rank or rank_weight[a.rank]
+    local rank_b = type(b.rank) == "number" and b.rank or rank_weight[b.rank]
+
+    if mode == "suit" then
+      if suit_a == suit_b then
+        if rank_a == rank_b then
+          return tostring(a.rank) < tostring(b.rank)
+        end
+        return rank_a < rank_b
+      end
+      return suit_weight[suit_a] < suit_weight[suit_b]
+    end
+
+    if rank_a == rank_b then
+      return suit_weight[suit_a] < suit_weight[suit_b]
+    end
+    return rank_a < rank_b
+  end)
+
+  state.selected = {}
+  for index, card in ipairs(state.hand) do
+    if selected_cards[card] then
+      state.selected[index] = true
+    end
+  end
+
+  if mode == "suit" then
+    state.message = "Hand sorted by suit."
+  else
+    state.message = "Hand sorted by rank."
+  end
 end
 
 return M

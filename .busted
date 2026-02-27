@@ -1,0 +1,7 @@
+return {
+  default = {
+    ROOT = { "./" },
+    pattern = "_spec",
+    verbose = true,
+  },
+}
