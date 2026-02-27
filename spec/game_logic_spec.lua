@@ -108,7 +108,7 @@ describe("game_logic", function()
       local result = game.discard_selected(state)
       assert.is_true(result.ok)
       assert.are.equal("discarded", result.event)
-      assert.are.equal(2, state.discards)
+      assert.are.equal(game.STARTING_DISCARDS - 1, state.discards)
       assert.are.equal(before, #state.hand)
     end)
 

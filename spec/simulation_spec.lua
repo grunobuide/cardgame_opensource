@@ -11,6 +11,11 @@ end
 local function run_scripted(seed)
   local state = game.new_state(game.make_seeded_rng(seed), { seed = seed })
   local trace = {}
+  local initial_hand = {}
+  for i = 1, #state.hand do
+    local card = state.hand[i]
+    initial_hand[i] = tostring(card.rank) .. card.suit
+  end
 
   local function push(step)
     trace[#trace + 1] = step
@@ -44,6 +49,7 @@ local function run_scripted(seed)
   assert.is_true(state.game_over)
   return {
     trace = trace,
+    initial_hand = table.concat(initial_hand, ","),
     final = {
       ante = state.ante,
       blind_index = state.blind_index,
@@ -69,6 +75,6 @@ describe("deterministic simulation", function()
     local a = run_scripted("mt-sim-seed-001")
     local b = run_scripted("mt-sim-seed-002")
 
-    assert.are_not.same(a.trace, b.trace)
+    assert.are_not.equal(a.initial_hand, b.initial_hand)
   end)
 end)
