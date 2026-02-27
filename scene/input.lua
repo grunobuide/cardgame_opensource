@@ -5,9 +5,17 @@ function M.install(GameScene, game)
     if button ~= 1 or self.anim.locked then
       return
     end
+    x, y = self:to_virtual(x, y)
+    if x < 0 or y < 0 or x > self.base_width or y > self.base_height then
+      return
+    end
 
     if self.run_result then
       self:enqueue_action("new_run")
+      return
+    end
+
+    if self.state.shop and self.state.shop.active then
       return
     end
 
@@ -72,6 +80,31 @@ function M.install(GameScene, game)
     end
 
     if self.anim.locked then
+      return
+    end
+
+    if self.state.shop and self.state.shop.active then
+      if key == "1" then
+        self:enqueue_action("shop_buy_1")
+        return
+      end
+      if key == "2" then
+        self:enqueue_action("shop_buy_2")
+        return
+      end
+      if key == "3" then
+        self:enqueue_action("shop_buy_3")
+        return
+      end
+      if key == "e" then
+        self:enqueue_action("shop_reroll")
+        return
+      end
+      if key == "c" or key == "return" or key == "kpenter" then
+        self:enqueue_action("shop_continue")
+        return
+      end
+      self.state.message = "Shop controls: 1/2/3 buy | E reroll | C continue"
       return
     end
 

@@ -9,6 +9,21 @@ M.BLINDS = {
   { id = "big", label = "Big Blind", target_mult = 1.65 },
   { id = "boss", label = "Boss Blind", target_mult = 2.35 },
 }
+M.BLIND_PAYOUTS = {
+  small = 4,
+  big = 7,
+  boss = 12,
+}
+M.SHOP = {
+  offer_count = 3,
+  reroll_base_cost = 2,
+  reroll_cost_step = 1,
+  prices = {
+    common = 6,
+    uncommon = 8,
+    rare = 11,
+  },
+}
 M.STARTING_HANDS = 5
 M.STARTING_DISCARDS = 2
 M.HAND_SIZE = 8
@@ -150,6 +165,119 @@ function M.current_target(state)
   return math.floor((base * blind.target_mult) + 0.5)
 end
 
+function M.blind_clear_payout(state, blind)
+  local target_blind = blind or M.current_blind(state)
+  local base = M.BLIND_PAYOUTS[target_blind.id] or 0
+  local ante_bonus = math.max(0, (state.ante or 1) - 1) * 2
+  return base + ante_bonus
+end
+
+function M.award_blind_clear_payout(state, blind)
+  local payout = M.blind_clear_payout(state, blind)
+  state.money = (state.money or 0) + payout
+  return payout
+end
+
+local function shop_offer_from_joker_key(state, joker_key)
+  local joker = M.JOKERS[joker_key]
+  if not joker then
+    return nil
+  end
+  local rarity = joker.rarity or "common"
+  local price = M.SHOP.prices[rarity] or M.SHOP.prices.common
+  return {
+    joker_key = joker_key,
+    price = price,
+    rarity = rarity,
+  }
+end
+
+function M.roll_shop_offers(state, count)
+  local total = count or M.SHOP.offer_count
+  local keys = {}
+  for joker_key, _ in pairs(M.JOKERS) do
+    keys[#keys + 1] = joker_key
+  end
+  table.sort(keys)
+
+  local offers = {}
+  for i = 1, total do
+    local key = keys[state.rng(1, #keys)]
+    offers[#offers + 1] = shop_offer_from_joker_key(state, key)
+  end
+  return offers
+end
+
+function M.open_shop(state, clear_event)
+  state.shop = {
+    active = true,
+    offers = M.roll_shop_offers(state, M.SHOP.offer_count),
+    reroll_cost = M.SHOP.reroll_base_cost,
+    clear_event = clear_event,
+  }
+end
+
+function M.shop_buy_offer(state, index)
+  local shop = state.shop
+  if not shop or not shop.active then
+    return { ok = false, reason = "shop_inactive", message = "Shop is not open." }
+  end
+  local offer = shop.offers[index]
+  if not offer then
+    return { ok = false, reason = "invalid_offer", message = "Invalid shop offer." }
+  end
+  if #state.jokers >= M.MAX_JOKERS then
+    return { ok = false, reason = "max_jokers", message = "Max 5 Jokers!" }
+  end
+  if (state.money or 0) < offer.price then
+    return { ok = false, reason = "insufficient_money", message = "Not enough money." }
+  end
+
+  state.money = state.money - offer.price
+  state.jokers[#state.jokers + 1] = offer.joker_key
+  local joker_name = M.JOKERS[offer.joker_key] and M.JOKERS[offer.joker_key].name or offer.joker_key
+  shop.offers[index] = nil
+  state.message = ("Bought %s for $%d."):format(joker_name, offer.price)
+  return { ok = true, event = "shop_bought", joker_key = offer.joker_key, cost = offer.price, money = state.money }
+end
+
+function M.shop_reroll(state)
+  local shop = state.shop
+  if not shop or not shop.active then
+    return { ok = false, reason = "shop_inactive", message = "Shop is not open." }
+  end
+  local cost = shop.reroll_cost or M.SHOP.reroll_base_cost
+  if (state.money or 0) < cost then
+    return { ok = false, reason = "insufficient_money", message = "Not enough money to reroll." }
+  end
+
+  state.money = state.money - cost
+  shop.offers = M.roll_shop_offers(state, M.SHOP.offer_count)
+  shop.reroll_cost = cost + M.SHOP.reroll_cost_step
+  state.message = ("Shop rerolled for $%d."):format(cost)
+  return { ok = true, event = "shop_rerolled", cost = cost, next_reroll_cost = shop.reroll_cost, money = state.money }
+end
+
+function M.shop_continue(state)
+  local shop = state.shop
+  if not shop or not shop.active then
+    return { ok = false, reason = "shop_inactive", message = "Shop is not open." }
+  end
+
+  local clear_event = shop.clear_event
+  state.shop = nil
+
+  local event = clear_event
+  if clear_event == "next_ante" then
+    M.next_ante(state)
+  elseif clear_event == "next_blind" then
+    M.next_blind(state)
+  else
+    event = "shop_closed"
+  end
+  return { ok = true, event = event, money = state.money }
+end
+
 function M.rank_to_value(rank)
   if type(rank) == "number" then
     return rank
@@ -260,51 +388,73 @@ function M.evaluate_hand(cards)
   return M.HAND_TYPES.HIGH_CARD
 end
 
-M.JOKERS = {
-  JOKER = {
-    name = "Joker",
-    rarity = "common",
-    formula = "+4 Mult",
-    image = "Joker.png",
-    apply = function(_cards, _hand_type)
-      return { mult = 4 }
-    end,
-  },
-  GREEDY_JOKER = {
-    name = "Greedy Joker",
-    rarity = "uncommon",
-    formula = "+4 Mult if at least one Diamond is played",
-    image = "Joker2.png",
-    apply = function(cards, _hand_type)
-      for _, card in ipairs(cards) do
-        if to_suit_code(card.suit) == "D" then
-          return { mult = 4 }
-        end
-      end
+M.JOKERS = {}
+local next_joker_sprite_index = 1
+
+function M.register_joker(key, definition)
+  local def = definition or {}
+  local sprite_index = def.sprite_index or next_joker_sprite_index
+  if def.sprite_index == nil then
+    next_joker_sprite_index = next_joker_sprite_index + 1
+  end
+
+  M.JOKERS[key] = {
+    name = def.name or key,
+    rarity = def.rarity or "common",
+    formula = def.formula or "",
+    image = def.image or "Joker.png",
+    sprite_index = sprite_index,
+    apply = def.apply or function()
       return {}
     end,
-  },
-  PAIR_JOKER = {
-    name = "Pair Joker",
-    rarity = "rare",
-    formula = "+2 Mult x number of pairs in played cards",
-    image = "Joker.png",
-    apply = function(cards, _hand_type)
-      local counts = {}
-      for _, card in ipairs(cards) do
-        local key = tostring(card.rank)
-        counts[key] = (counts[key] or 0) + 1
+  }
+end
+
+M.register_joker("JOKER", {
+  name = "Joker",
+  rarity = "common",
+  formula = "+4 Mult",
+  image = "Joker.png",
+  apply = function(_cards, _hand_type)
+    return { mult = 4 }
+  end,
+})
+
+M.register_joker("GREEDY_JOKER", {
+  name = "Greedy Joker",
+  rarity = "uncommon",
+  formula = "+4 Mult if at least one Diamond is played",
+  image = "Joker2.png",
+  apply = function(cards, _hand_type)
+    for _, card in ipairs(cards) do
+      if to_suit_code(card.suit) == "D" then
+        return { mult = 4 }
       end
-      local pair_count = 0
-      for _, count in pairs(counts) do
-        if count == 2 then
-          pair_count = pair_count + 1
-        end
+    end
+    return {}
+  end,
+})
+
+M.register_joker("PAIR_JOKER", {
+  name = "Pair Joker",
+  rarity = "rare",
+  formula = "+2 Mult x number of pairs in played cards",
+  image = "Joker.png",
+  apply = function(cards, _hand_type)
+    local counts = {}
+    for _, card in ipairs(cards) do
+      local key = tostring(card.rank)
+      counts[key] = (counts[key] or 0) + 1
+    end
+    local pair_count = 0
+    for _, count in pairs(counts) do
+      if count == 2 then
+        pair_count = pair_count + 1
       end
-      return { mult = pair_count * 2 }
-    end,
-  },
-}
+    end
+    return { mult = pair_count * 2 }
+  end,
+})
 
 function M.new_state(rng, opts)
   opts = opts or {}
@@ -312,6 +462,7 @@ function M.new_state(rng, opts)
     ante = 1,
     blind_index = 1,
     score = 0,
+    money = 0,
     hands = M.STARTING_HANDS,
     discards = M.STARTING_DISCARDS,
     deck = {},
@@ -322,6 +473,7 @@ function M.new_state(rng, opts)
     run_won = false,
     message = "",
     seed = normalize_seed(opts.seed),
+    shop = nil,
     rng = rng or default_rng,
   }
   M.new_run(state)
@@ -486,8 +638,34 @@ function M.play_selected(state)
 
   local target = M.current_target(state)
   if state.score >= target then
-    local event = M.next_blind(state)
-    return { ok = true, event = event, projection = projection }
+    local cleared_blind = M.current_blind(state)
+    local payout = M.award_blind_clear_payout(state, cleared_blind)
+    local event = "next_blind"
+    if state.blind_index >= #M.BLINDS then
+      if state.ante >= M.MAX_ANTE then
+        event = "run_won"
+      else
+        event = "next_ante"
+      end
+    end
+
+    if event == "run_won" then
+      state.game_over = true
+      state.run_won = true
+      state.message = "You defeated the final boss blind! Run complete."
+    else
+      M.open_shop(state, event)
+      state.message = ("Blind cleared! +$%d. Entering shop."):format(payout)
+      event = "shop"
+    end
+    return {
+      ok = true,
+      event = event,
+      projection = projection,
+      payout = payout,
+      money = state.money,
+      cleared_blind = cleared_blind.id,
+    }
   end
   if state.hands == 0 then
     M.end_run(state, "You busted this blind.")
@@ -558,11 +736,13 @@ function M.new_run(state)
   state.ante = 1
   state.blind_index = 1
   state.score = 0
+  state.money = 0
   state.hands = M.STARTING_HANDS
   state.discards = M.STARTING_DISCARDS
   state.deck = M.build_deck(state.rng)
   state.hand = {}
   state.jokers = {}
+  state.shop = nil
   M.clear_selection(state)
   state.game_over = false
   state.run_won = false

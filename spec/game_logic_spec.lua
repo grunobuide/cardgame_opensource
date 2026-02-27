@@ -18,6 +18,7 @@ describe("game_logic", function()
       assert.are.equal("Small Blind", game.current_blind(state).label)
       assert.are.equal(game.STARTING_HANDS, state.hands)
       assert.are.equal(game.STARTING_DISCARDS, state.discards)
+      assert.are.equal(0, state.money)
       assert.are.equal(8, #state.hand)
       assert.are.equal(44, #state.deck)
       assert.are.equal(false, state.game_over)
@@ -131,6 +132,8 @@ describe("game_logic", function()
       local result = game.play_selected(state)
       assert.is_true(result.ok)
       assert.are.equal("next_blind", result.event)
+      assert.are.equal(game.BLIND_PAYOUTS.small, result.payout)
+      assert.are.equal(game.BLIND_PAYOUTS.small, state.money)
       assert.are.equal(1, state.ante)
       assert.are.equal(2, state.blind_index)
       assert.are.equal(0, state.score)
@@ -222,6 +225,73 @@ describe("game_logic", function()
       assert.are.equal("D", state.hand[3].suit)
       assert.are.equal("C", state.hand[4].suit)
       assert.are.equal("Hand sorted by suit.", state.message)
+    end)
+  end)
+
+  describe("currency and payouts", function()
+    it("calculates blind clear payout with ante bonus", function()
+      local state = game.new_state(deterministic_rng)
+      state.ante = 3
+      state.blind_index = 2
+      local payout = game.blind_clear_payout(state)
+      assert.are.equal(game.BLIND_PAYOUTS.big + 4, payout)
+    end)
+
+    it("awards money only when a blind is cleared", function()
+      local state = game.new_state(deterministic_rng)
+
+      game.toggle_selection(state, 1)
+      local played = game.play_selected(state)
+      assert.is_true(played.ok)
+      assert.are.equal("played", played.event)
+      assert.are.equal(0, state.money)
+
+      state.score = game.current_target(state) - 1
+      game.toggle_selection(state, 1)
+      local clear = game.play_selected(state)
+      assert.is_true(clear.ok)
+      assert.are.equal("next_blind", clear.event)
+      assert.is_true((clear.payout or 0) > 0)
+      assert.are.equal(clear.money, state.money)
+    end)
+
+    it("enters shop on blind clear and continues progression after shop", function()
+      local state = game.new_state(deterministic_rng)
+      state.score = game.current_target(state) - 1
+      game.toggle_selection(state, 1)
+      local clear = game.play_selected(state)
+
+      assert.is_true(clear.ok)
+      assert.are.equal("shop", clear.event)
+      assert.is_true(state.shop and state.shop.active)
+      assert.are.equal(1, state.blind_index)
+
+      local cont = game.shop_continue(state)
+      assert.is_true(cont.ok)
+      assert.are.equal("next_blind", cont.event)
+      assert.is_nil(state.shop)
+      assert.are.equal(2, state.blind_index)
+    end)
+
+    it("supports shop buy and reroll actions", function()
+      local state = game.new_state(deterministic_rng)
+      state.score = game.current_target(state) - 1
+      game.toggle_selection(state, 1)
+      local clear = game.play_selected(state)
+      assert.are.equal("shop", clear.event)
+
+      state.money = 100
+      local before_jokers = #state.jokers
+
+      local buy = game.shop_buy_offer(state, 1)
+      assert.is_true(buy.ok)
+      assert.are.equal("shop_bought", buy.event)
+      assert.is_true(#state.jokers == before_jokers + 1)
+
+      local reroll = game.shop_reroll(state)
+      assert.is_true(reroll.ok)
+      assert.are.equal("shop_rerolled", reroll.event)
+      assert.is_true((state.shop.reroll_cost or 0) > game.SHOP.reroll_base_cost)
     end)
   end)
 end)

@@ -9,7 +9,8 @@ function M.install(GameScene, game)
   end
 
   function GameScene:recalc_card_slots()
-    self.card_slots = Layout.card_slots(#self.state.hand)
+    local grid = Layout.columns(self.base_width, self.base_height)
+    self.card_slots = Layout.card_slots(#self.state.hand, grid.center.hand)
   end
 
   function GameScene:make_card_visual(index, card, from_deal)

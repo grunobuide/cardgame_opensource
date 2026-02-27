@@ -50,11 +50,39 @@ function M.install(GameScene, game)
       game.sort_hand(self.state, "rank")
       return { ok = true, event = "sorted_rank" }
     end
+    if action_id == "shop_buy_1" then
+      return game.shop_buy_offer(self.state, 1)
+    end
+    if action_id == "shop_buy_2" then
+      return game.shop_buy_offer(self.state, 2)
+    end
+    if action_id == "shop_buy_3" then
+      return game.shop_buy_offer(self.state, 3)
+    end
+    if action_id == "shop_reroll" then
+      return game.shop_reroll(self.state)
+    end
+    if action_id == "shop_continue" then
+      return game.shop_continue(self.state)
+    end
     return nil
   end
 
   function GameScene:enqueue_action(action_id)
     if self.anim.locked then
+      return
+    end
+
+    local in_shop = self.state.shop and self.state.shop.active
+    if in_shop and not (
+      action_id == "shop_buy_1"
+      or action_id == "shop_buy_2"
+      or action_id == "shop_buy_3"
+      or action_id == "shop_reroll"
+      or action_id == "shop_continue"
+      or action_id == "new_run"
+    ) then
+      self.state.message = "Finish the shop before continuing."
       return
     end
 
@@ -82,14 +110,18 @@ function M.install(GameScene, game)
           self:animate_selected_out(action_id, function()
             local result = self:apply_logic_action(action_id)
             if result and result.ok then
-              self:rebuild_visuals(true)
+              if not (result.event == "shop_bought" or result.event == "shop_rerolled") then
+                self:rebuild_visuals(true)
+              end
             end
             self.anim:run_next()
           end)
         else
           local result = self:apply_logic_action(action_id)
           if result and result.ok then
-            self:rebuild_visuals(true)
+            if not (result.event == "shop_bought" or result.event == "shop_rerolled") then
+              self:rebuild_visuals(true)
+            end
           end
           self.anim:run_next()
         end

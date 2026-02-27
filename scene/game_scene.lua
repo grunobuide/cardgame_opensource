@@ -30,6 +30,13 @@ function GameScene.new()
     seed_input_mode = false,
     seed_buffer = "",
     current_seed = "",
+    base_width = 960,
+    base_height = 790,
+    viewport_scale = 1,
+    viewport_offset_x = 0,
+    viewport_offset_y = 0,
+    mouse_x = 0,
+    mouse_y = 0,
   }, GameScene)
 end
 
@@ -64,6 +71,23 @@ function GameScene:get_image(path)
   local ok, img = pcall(love.graphics.newImage, path)
   self.image_cache[path] = ok and img or false
   return self.image_cache[path]
+end
+
+function GameScene:update_viewport()
+  local w, h = love.graphics.getWidth(), love.graphics.getHeight()
+  local sx = w / self.base_width
+  local sy = h / self.base_height
+  self.viewport_scale = math.min(sx, sy)
+  local draw_w = self.base_width * self.viewport_scale
+  local draw_h = self.base_height * self.viewport_scale
+  self.viewport_offset_x = math.floor((w - draw_w) * 0.5)
+  self.viewport_offset_y = math.floor((h - draw_h) * 0.5)
+end
+
+function GameScene:to_virtual(x, y)
+  local vx = (x - self.viewport_offset_x) / self.viewport_scale
+  local vy = (y - self.viewport_offset_y) / self.viewport_scale
+  return vx, vy
 end
 
 function GameScene:init_run_stats()
@@ -182,23 +206,33 @@ function GameScene:build_run_result()
 end
 
 function GameScene:load()
-  love.window.setMode(960, 790, { resizable = false, vsync = 1 })
+  love.window.setMode(960, 790, {
+    resizable = true,
+    minwidth = 960,
+    minheight = 640,
+    vsync = 1,
+  })
   love.window.setTitle("Open Balatro Lua Prototype")
   love.math.setRandomSeed(os.time())
+  love.graphics.setDefaultFilter("nearest", "nearest")
 
-  self.fonts.title = love.graphics.newFont(27)
-  self.fonts.body = love.graphics.newFont(17)
-  self.fonts.small = love.graphics.newFont(13)
+  self.fonts.title = love.graphics.newFont(22)
+  self.fonts.body = love.graphics.newFont(15)
+  self.fonts.small = love.graphics.newFont(11)
 
   self.current_seed = self:generate_seed()
   self.state = game.new_state(game.make_seeded_rng(self.current_seed), { seed = self.current_seed })
 
   self.buttons = Layout.buttons()
+  Layout.position_buttons(self.buttons, self.base_width, self.base_height)
+  self:update_viewport()
   self:rebuild_visuals(false)
   self:init_run_stats()
 end
 
 function GameScene:update(dt)
+  self:update_viewport()
+  Layout.position_buttons(self.buttons, self.base_width, self.base_height)
   self.anim:update(dt)
   self:update_selection_lifts(dt)
 
@@ -212,12 +246,19 @@ function GameScene:update(dt)
   end
 
   local mx, my = love.mouse.getPosition()
+  mx, my = self:to_virtual(mx, my)
+  self.mouse_x = mx
+  self.mouse_y = my
   for _, button in ipairs(self.buttons) do
     button.hovered = (mx >= button.x and mx <= button.x + button.w and my >= button.y and my <= button.y + button.h and not self.anim.locked)
   end
 end
 
 function GameScene:draw()
+  love.graphics.clear(0, 0, 0, 1)
+  love.graphics.push()
+  love.graphics.translate(self.viewport_offset_x, self.viewport_offset_y)
+  love.graphics.scale(self.viewport_scale, self.viewport_scale)
   Render.draw({
     game = game,
     state = self.state,
@@ -231,10 +272,13 @@ function GameScene:draw()
     current_seed = self.current_seed,
     seed_input_mode = self.seed_input_mode,
     seed_buffer = self.seed_buffer,
+    mouse_x = self.mouse_x,
+    mouse_y = self.mouse_y,
     get_image = function(path)
       return self:get_image(path)
     end,
   })
+  love.graphics.pop()
 end
 
 CardVisuals.install(GameScene, game)

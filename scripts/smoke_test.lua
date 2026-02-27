@@ -36,6 +36,20 @@ local function run()
   local play_result = game.play_selected(state)
   assert_true(play_result.ok, "play should succeed with selected cards")
   assert_equals(state.hands, game.STARTING_HANDS - 1, "hands should decrement after play")
+  assert_equals(state.money, 0, "money should not increase unless a blind is cleared")
+
+  state.score = game.current_target(state) - 1
+  game.toggle_selection(state, 1)
+  local clear_result = game.play_selected(state)
+  assert_true(clear_result.ok, "play should succeed when clearing blind")
+  assert_true((clear_result.payout or 0) > 0, "blind clear should grant payout")
+  assert_equals(state.money, clear_result.money, "state money should match action result money")
+  assert_equals(clear_result.event, "shop", "blind clear should enter shop")
+  assert_true(state.shop and state.shop.active, "shop should be active after clear")
+
+  local continue_result = game.shop_continue(state)
+  assert_true(continue_result.ok, "shop continue should succeed")
+  assert_equals(continue_result.event, "next_blind", "shop continue should progress to next blind")
 
   game.set_hand_to_royal_flush(state)
   game.clear_selection(state)

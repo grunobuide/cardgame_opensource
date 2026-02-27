@@ -36,6 +36,7 @@ love .
 - `T`: toggle dark/light sprite set
 - `K`: open seed input mode
 - `G`: generate/apply a new seed and start a run
+- Shop mode: `1/2/3` buy offers, `E` reroll, `C` continue
 - `Enter` / `Space` on result screen: start new run
 
 ## How To Test
@@ -83,8 +84,9 @@ Run `love .` and verify:
 3. Discarding selected cards decreases discards and refills hand back to 8.
 4. Adding jokers changes projected and actual score behavior when hands are played.
 5. `T` toggles between light and dark card sprite sets.
-6. Clearing a target advances ante and resets hands/discards.
-7. On run end, a result overlay appears with per-round stats and totals.
+6. Clearing a blind grants money payout (`small=4`, `big=7`, `boss=12` + ante bonus) and enters shop.
+7. Shop allows buying offers, rerolling, and continuing to the next blind.
+8. On run end, a result overlay appears with per-round stats and totals.
 
 ## Notes
 
@@ -92,3 +94,25 @@ Run `love .` and verify:
 - Card art is loaded from `Cards/Cards_Dark` and `Cards/Cards`.
 - `main.lua` now includes queued card transitions with tweened play/discard/deal animations.
 - CI (`.github/workflows/lua-tests.yml`) runs both smoke test and full `busted` suite on push/PR.
+- Joker icon sheet is loaded from `assets/cards/jkrs_nobg.png` (12-slot grid, `4x3`) with fallback to UI icon sheets.
+
+## Adding New Jokers (Easy Path)
+
+Use `register_joker` in `src/game_logic.lua`:
+
+```lua
+M.register_joker("MY_NEW_JOKER", {
+  name = "My New Joker",
+  rarity = "common", -- common | uncommon | rare
+  formula = "+3 Mult if ...",
+  -- optional: sprite_index = 4, -- if omitted, auto-assigned
+  apply = function(cards, hand_type)
+    -- return effect table with chips and/or mult
+    return { mult = 3 }
+  end,
+})
+```
+
+Notes:
+- `sprite_index` maps to the joker sheet slot (`1..12`).
+- If omitted, indices are auto-assigned in registration order.

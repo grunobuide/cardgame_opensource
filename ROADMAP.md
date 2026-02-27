@@ -19,8 +19,8 @@ Goal: a complete single-run core loop with clear progression and failure states.
 
 Goal: meta decisions between blinds and an economy that shapes deck growth.
 
-- [ ] Currency and payout rules per blind clear
-- [ ] Shop scene between blinds
+- [x] Currency and payout rules per blind clear
+- [x] Shop scene between blinds
 - [ ] Buy/sell/reroll loop for jokers/cards
 - [ ] Deck editing (remove/upgrade/duplicate cards)
 - [ ] Persistent per-run inventory model
@@ -67,10 +67,33 @@ Goal: establish a cohesive art direction and readability baseline.
 
 - [x] Define visual theme tokens (color, spacing, radius, shadows, typography scale)
 - [x] Replace placeholder panel look with polished card-table aesthetic
-- [ ] Improve hierarchy of primary/secondary/tertiary actions
-- [ ] Standardize iconography and labels for controls
-- [ ] Improve contrast/accessibility for text, highlights, warnings
-- [ ] Add responsive layout rules for lower resolutions
+- [x] Improve hierarchy of primary/secondary/tertiary actions
+- [x] Standardize iconography and labels for controls
+- [x] Improve contrast/accessibility for text, highlights, warnings
+- [x] Add responsive layout rules for lower resolutions
+
+## MU1.5 - Battle Layout Direction
+
+Goal: establish a clear 8-bit battle screen hierarchy before deeper style polish.
+
+What this implies for our next implementation pass:
+
+- [x] Adopt a true 3-column battle layout
+  - Left: run status + upgrades
+  - Center: hand/combat lane (primary focus)
+  - Right: shop/jokers/details
+- [ ] Pixel component kit
+  - Reusable `PixelPanel`, `PixelButton`, `PixelBadge`, `PixelBar`, `PixelSlot`
+  - Hard 2px borders, 2px shadows, no soft gradients/glow
+- [ ] Icon-first HUD
+  - Every stat/action gets an icon + short token label
+  - Move from text-heavy rows to compact status cards
+- [ ] Combat lane clarity
+  - Center stack: round marker, enemies, hand, action buttons, boss bar
+  - Bigger hand cards, clearer selected state
+- [ ] Typography direction
+  - Pixel font stack for titles + labels + values
+  - Strict size scale (`tiny/small/medium/title`) and spacing grid
 
 ## MU2 - Core Interaction Polish
 
