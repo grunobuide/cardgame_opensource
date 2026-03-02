@@ -23,7 +23,7 @@ function M.install(GameScene, game)
       index = index,
       card = card,
       x = slot.x,
-      y = from_deal and (slot.y - 42) or slot.y,
+      y = from_deal and (slot.y - 64) or slot.y,
       w = slot.w,
       h = slot.h,
       alpha = from_deal and 0 or 1,
@@ -57,7 +57,7 @@ function M.install(GameScene, game)
   function GameScene:update_selection_lifts(dt)
     for i, visual in ipairs(self.card_visuals) do
       visual.index = i
-      visual.target_lift = self.state.selected[i] and -18 or 0
+      visual.target_lift = self.state.selected[i] and -36 or 0
       local speed = math.min(1, dt * 16)
       visual.lift = visual.lift + ((visual.target_lift or 0) - visual.lift) * speed
     end

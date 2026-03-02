@@ -1,8 +1,12 @@
 local game = require("src.game_logic")
+local EventBus = require("src.event_bus")
+local SaveLoad = require("src.save_load")
 local TweenQueue = require("anim.tween_queue")
 local Palette = require("ui.palette")
+local Typography = require("ui.typography")
 local Render = require("ui.render")
 local Layout = require("ui.layout")
+local UiState = require("ui.ui_state")
 local CardVisuals = require("scene.card_visuals")
 local Actions = require("scene.actions")
 local Input = require("scene.input")
@@ -18,6 +22,7 @@ function GameScene.new()
   return setmetatable({
     state = nil,
     theme = "dark",
+    typography = nil,
     fonts = {},
     buttons = {},
     card_slots = {},
@@ -25,19 +30,70 @@ function GameScene.new()
     next_uid = 1,
     anim = TweenQueue.new(),
     image_cache = {},
+    event_bus = nil,
+    ui_state = nil,
+    save_store = nil,
     run_stats = nil,
     run_result = nil,
     seed_input_mode = false,
     seed_buffer = "",
     current_seed = "",
-    base_width = 960,
-    base_height = 790,
+    base_width = 1366,
+    base_height = 768,
     viewport_scale = 1,
     viewport_offset_x = 0,
     viewport_offset_y = 0,
     mouse_x = 0,
     mouse_y = 0,
   }, GameScene)
+end
+
+function GameScene:save_run()
+  if not self.save_store then
+    return { ok = false, reason = "save_unavailable", message = "Save system is unavailable." }
+  end
+
+  local meta = {
+    current_seed = self.current_seed,
+    run_stats = self.run_stats,
+    run_result = self.run_result,
+    theme = self.theme,
+  }
+  return self.save_store:save(self.state, meta)
+end
+
+function GameScene:load_run()
+  if not self.save_store then
+    return { ok = false, reason = "save_unavailable", message = "Save system is unavailable." }
+  end
+
+  local result = self.save_store:load()
+  if not result.ok then
+    return result
+  end
+
+  self.state = result.state
+  local meta = result.meta or {}
+  self.current_seed = trim(meta.current_seed or self.state.seed or self.current_seed)
+  if self.current_seed == "" then
+    self.current_seed = self:generate_seed()
+  end
+  self.theme = meta.theme or self.theme
+  self.run_stats = meta.run_stats or nil
+  self.run_result = meta.run_result or nil
+
+  if not self.run_stats and not self.state.game_over then
+    self:init_run_stats()
+  end
+  if self.state.game_over and not self.run_result then
+    self:build_run_result()
+  end
+
+  self.seed_input_mode = false
+  self.seed_buffer = ""
+  self:rebuild_visuals(false)
+
+  return result
 end
 
 function GameScene:palette()
@@ -206,28 +262,33 @@ function GameScene:build_run_result()
 end
 
 function GameScene:load()
-  love.window.setMode(960, 790, {
+  love.window.setMode(1366, 768, {
     resizable = true,
-    minwidth = 960,
-    minheight = 640,
+    minwidth = 1280,
+    minheight = 720,
     vsync = 1,
   })
   love.window.setTitle("Open Balatro Lua Prototype")
   love.math.setRandomSeed(os.time())
   love.graphics.setDefaultFilter("nearest", "nearest")
 
-  self.fonts.title = love.graphics.newFont(22)
-  self.fonts.body = love.graphics.newFont(15)
-  self.fonts.small = love.graphics.newFont(11)
+  self.typography = Typography.load()
+  self.fonts = self.typography.fonts
 
   self.current_seed = self:generate_seed()
   self.state = game.new_state(game.make_seeded_rng(self.current_seed), { seed = self.current_seed })
+  self.event_bus = EventBus.new()
+  self.ui_state = UiState.new(self.event_bus)
+  self.save_store = SaveLoad.new({ game = game })
 
   self.buttons = Layout.buttons()
   Layout.position_buttons(self.buttons, self.base_width, self.base_height)
   self:update_viewport()
   self:rebuild_visuals(false)
   self:init_run_stats()
+  if self.state.message and self.state.message ~= "" then
+    self:publish_message(self.state.message, "info", "bootstrap")
+  end
 end
 
 function GameScene:update(dt)
@@ -264,10 +325,12 @@ function GameScene:draw()
     state = self.state,
     theme = self.theme,
     palette = self:palette(),
+    typography = self.typography,
     fonts = self.fonts,
     buttons = self.buttons,
     card_visuals = self.card_visuals,
     projection = self:get_projection(),
+    ui_state = self.ui_state,
     run_result = self.run_result,
     current_seed = self.current_seed,
     seed_input_mode = self.seed_input_mode,
