@@ -9,6 +9,17 @@ function M.install(GameScene, game)
     end
   end
 
+  local function normalize_selection_error(message)
+    local text = tostring(message or "")
+    if text == "" then
+      return "Selection unavailable."
+    end
+    if text:find("up to 5 cards", 1, true) then
+      return "Selection limit reached (5 cards max)."
+    end
+    return text
+  end
+
   function GameScene:mousepressed(x, y, button)
     if button ~= 1 or self.anim.locked then
       return
@@ -34,7 +45,7 @@ function M.install(GameScene, game)
       if x >= cx and x <= cx + visual.w and y >= cy and y <= cy + visual.h then
         local ok, msg = game.toggle_selection(self.state, visual.index)
         if not ok and msg then
-          push_message(self, msg, "warn", "selection")
+          push_message(self, normalize_selection_error(msg), "warn", "selection")
         end
         return
       end
@@ -114,6 +125,20 @@ function M.install(GameScene, game)
 
     if key == "f2" then
       self.theme = (self.theme == "dark") and "light" or "dark"
+      return
+    end
+
+    if key == "f3" then
+      self.reduced_motion = not self.reduced_motion
+      if self.anim and self.anim.set_reduced_motion then
+        self.anim:set_reduced_motion(self.reduced_motion)
+      end
+      push_message(
+        self,
+        self.reduced_motion and "Reduced motion enabled." or "Reduced motion disabled.",
+        "info",
+        "motion"
+      )
       return
     end
 
@@ -250,7 +275,7 @@ function M.install(GameScene, game)
     if n and n >= 1 and n <= #self.state.hand then
       local ok, msg = game.toggle_selection(self.state, n)
       if not ok and msg then
-        push_message(self, msg, "warn", "selection")
+        push_message(self, normalize_selection_error(msg), "warn", "selection")
       end
     end
   end

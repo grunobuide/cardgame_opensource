@@ -18,6 +18,47 @@ local function trim(text)
   return tostring(text or ""):gsub("^%s+", ""):gsub("%s+$", "")
 end
 
+local function approach(current, target, speed)
+  if current < target then
+    return math.min(target, current + speed)
+  end
+  if current > target then
+    return math.max(target, current - speed)
+  end
+  return current
+end
+
+local function shallow_copy_table(source)
+  if type(source) ~= "table" then
+    return source
+  end
+  local out = {}
+  for key, value in pairs(source) do
+    out[key] = value
+  end
+  return out
+end
+
+local function clone_shop_snapshot(shop)
+  if not shop then
+    return nil
+  end
+  local snapshot = shallow_copy_table(shop)
+  snapshot.offers = {}
+  for i, offer in ipairs(shop.offers or {}) do
+    if type(offer) == "table" then
+      local cloned = shallow_copy_table(offer)
+      if offer.card then
+        cloned.card = shallow_copy_table(offer.card)
+      end
+      snapshot.offers[i] = cloned
+    else
+      snapshot.offers[i] = offer
+    end
+  end
+  return snapshot
+end
+
 function GameScene.new()
   return setmetatable({
     state = nil,
@@ -38,6 +79,18 @@ function GameScene.new()
     seed_input_mode = false,
     seed_buffer = "",
     current_seed = "",
+    reduced_motion = false,
+    ui_panel_intro = 0,
+    overlay_alpha = {
+      shop = 0,
+      run_result = 0,
+      seed_prompt = 0,
+    },
+    overlay_snapshots = {
+      shop = nil,
+      run_result = nil,
+      seed_buffer = "",
+    },
     base_width = 1366,
     base_height = 768,
     viewport_scale = 1,
@@ -58,6 +111,7 @@ function GameScene:save_run()
     run_stats = self.run_stats,
     run_result = self.run_result,
     theme = self.theme,
+    reduced_motion = self.reduced_motion,
   }
   return self.save_store:save(self.state, meta)
 end
@@ -81,6 +135,10 @@ function GameScene:load_run()
   self.theme = meta.theme or self.theme
   self.run_stats = meta.run_stats or nil
   self.run_result = meta.run_result or nil
+  self.reduced_motion = meta.reduced_motion == true
+  if self.anim and self.anim.set_reduced_motion then
+    self.anim:set_reduced_motion(self.reduced_motion)
+  end
 
   if not self.run_stats and not self.state.game_over then
     self:init_run_stats()
@@ -91,7 +149,8 @@ function GameScene:load_run()
 
   self.seed_input_mode = false
   self.seed_buffer = ""
-  self:rebuild_visuals(false)
+  self.ui_panel_intro = 0
+  self:rebuild_visuals("snap")
 
   return result
 end
@@ -116,7 +175,8 @@ function GameScene:apply_seed(seed, start_new_run)
   if start_new_run then
     game.new_run(self.state)
     self:init_run_stats()
-    self:rebuild_visuals(false)
+    self.ui_panel_intro = 0
+    self:rebuild_visuals("deal")
   end
 end
 
@@ -280,11 +340,13 @@ function GameScene:load()
   self.event_bus = EventBus.new()
   self.ui_state = UiState.new(self.event_bus)
   self.save_store = SaveLoad.new({ game = game })
+  self.anim:set_reduced_motion(self.reduced_motion)
 
   self.buttons = Layout.buttons()
   Layout.position_buttons(self.buttons, self.base_width, self.base_height)
   self:update_viewport()
-  self:rebuild_visuals(false)
+  self.ui_panel_intro = 0
+  self:rebuild_visuals("snap")
   self:init_run_stats()
   if self.state.message and self.state.message ~= "" then
     self:publish_message(self.state.message, "info", "bootstrap")
@@ -292,10 +354,40 @@ function GameScene:load()
 end
 
 function GameScene:update(dt)
+  local step_dt = math.max(0, math.min(dt or 0, 1 / 24))
   self:update_viewport()
   Layout.position_buttons(self.buttons, self.base_width, self.base_height)
-  self.anim:update(dt)
-  self:update_selection_lifts(dt)
+  self.anim:update(step_dt)
+  self:update_selection_lifts(step_dt)
+  if self.reduced_motion then
+    self.ui_panel_intro = 1
+    self.overlay_alpha.shop = (self.state.shop and self.state.shop.active) and 1 or 0
+    self.overlay_alpha.run_result = self.run_result and 1 or 0
+    self.overlay_alpha.seed_prompt = self.seed_input_mode and 1 or 0
+  else
+    self.ui_panel_intro = approach(self.ui_panel_intro, 1, step_dt * 3.4)
+    self.overlay_alpha.shop = approach(self.overlay_alpha.shop, (self.state.shop and self.state.shop.active) and 1 or 0, step_dt * 7.2)
+    self.overlay_alpha.run_result = approach(self.overlay_alpha.run_result, self.run_result and 1 or 0, step_dt * 6.4)
+    self.overlay_alpha.seed_prompt = approach(self.overlay_alpha.seed_prompt, self.seed_input_mode and 1 or 0, step_dt * 8.0)
+  end
+
+  if self.state.shop and self.state.shop.active then
+    self.overlay_snapshots.shop = clone_shop_snapshot(self.state.shop)
+  elseif self.overlay_alpha.shop <= 0.001 then
+    self.overlay_snapshots.shop = nil
+  end
+
+  if self.run_result then
+    self.overlay_snapshots.run_result = shallow_copy_table(self.run_result)
+  elseif self.overlay_alpha.run_result <= 0.001 then
+    self.overlay_snapshots.run_result = nil
+  end
+
+  if self.seed_input_mode then
+    self.overlay_snapshots.seed_buffer = self.seed_buffer
+  elseif self.overlay_alpha.seed_prompt <= 0.001 then
+    self.overlay_snapshots.seed_buffer = ""
+  end
 
   local i = 1
   while i <= #self.card_visuals do
@@ -335,6 +427,11 @@ function GameScene:draw()
     current_seed = self.current_seed,
     seed_input_mode = self.seed_input_mode,
     seed_buffer = self.seed_buffer,
+    reduced_motion = self.reduced_motion,
+    ui_panel_intro = self.ui_panel_intro,
+    overlay_alpha = self.overlay_alpha,
+    overlay_snapshots = self.overlay_snapshots,
+    anim_stats = self.anim.stats,
     mouse_x = self.mouse_x,
     mouse_y = self.mouse_y,
     get_image = function(path)

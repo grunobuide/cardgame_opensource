@@ -38,12 +38,33 @@ local function run_scripted(seed)
   push(("discard_fail:%s:%d"):format(d3.reason, state.discards))
 
   local safety = 0
-  while not state.game_over and safety < 24 do
-    select_first_n(state, 3)
-    local play = game.play_selected(state)
-    assert.is_true(play.ok)
-    push(("play:%s:%d:%d:%d"):format(play.event, state.ante, state.blind_index, state.score))
-    safety = safety + 1
+  while not state.game_over and safety < 40 do
+    if state.shop and state.shop.active then
+      local buy = game.shop_buy_offer(state, 1)
+      if buy.ok then
+        push(("shop:buy:%s:%d"):format(buy.offer_type or "joker", state.money))
+      else
+        push(("shop:buy_fail:%s:%d"):format(buy.reason or "unknown", state.money))
+      end
+
+      local reroll = game.shop_reroll(state)
+      if reroll.ok then
+        push(("shop:reroll:%d:%d"):format(reroll.cost or 0, reroll.next_reroll_cost or 0))
+      else
+        push(("shop:reroll_fail:%s:%d"):format(reroll.reason or "unknown", state.money))
+      end
+
+      local cont = game.shop_continue(state)
+      assert.is_true(cont.ok)
+      push(("shop:continue:%s:%d:%d"):format(cont.event, state.ante, state.blind_index))
+      safety = safety + 1
+    else
+      select_first_n(state, 3)
+      local play = game.play_selected(state)
+      assert.is_true(play.ok)
+      push(("play:%s:%d:%d:%d"):format(play.event, state.ante, state.blind_index, state.score))
+      safety = safety + 1
+    end
   end
 
   assert.is_true(state.game_over)

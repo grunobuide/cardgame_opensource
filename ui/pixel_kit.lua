@@ -114,11 +114,12 @@ function PixelKit.draw_button(x, y, w, h, state, label, opts)
   end
 
   local key_hint = opts.key_hint and tostring(opts.key_hint) or ""
-  local font = opts.font or fonts.ui or fonts.medium or fonts.small
+  local compact_font = fonts.small or fonts.ui or fonts.medium
+  local font = opts.font or ((h <= 30) and compact_font or (fonts.ui or fonts.medium or fonts.small))
   local small = fonts.small or font
   local text = tostring(label or "")
 
-  if key_hint ~= "" then
+  if key_hint ~= "" and h >= 28 then
     local badge_w = 40
     PixelKit.draw_panel(x + w - badge_w - 8, y + 8, badge_w, h - 16, {
       fill = { 0.08, 0.06, 0.16, 1.0 },
@@ -134,6 +135,10 @@ function PixelKit.draw_button(x, y, w, h, state, label, opts)
     love.graphics.setColor(rgba(visual.text))
     love.graphics.printf(text, x + 12, y + math.floor((h - font:getHeight()) * 0.5), w - badge_w - 22, "left")
     return
+  end
+
+  if key_hint ~= "" then
+    text = ("%s (%s)"):format(text, key_hint)
   end
 
   text = clipped_label(font, text, w - 20)

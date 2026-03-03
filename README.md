@@ -3,9 +3,10 @@
 This project now uses Lua only:
 
 - `main.lua`: thin LÖVE bootstrap
+- `config/tunables.lua`: gameplay/economy tunables (blinds, payouts, shop costs, run caps)
 - `scene/game_scene.lua`: runtime scene orchestration/input/action pipeline
 - `anim/tween_queue.lua`: tween + queued transition system
-- `ui/layout.lua`, `ui/palette.lua`, `ui/render.lua`: UI layout, theming, and drawing
+- `ui/layout.lua`, `ui/palette.lua`, `ui/typography.lua`, `ui/pixel_kit.lua`, `ui/render.lua`: UI layout, theming, typography scale, pixel primitives, and drawing
 - `src/game_logic.lua`: pure game rules/state module
 
 Roadmap:
@@ -36,7 +37,15 @@ love .
 - `T`: toggle dark/light sprite set
 - `K`: open seed input mode
 - `G`: generate/apply a new seed and start a run
-- Shop mode: `1/2/3` buy offers, `E` reroll, `C` continue
+- `F5`: save current run snapshot
+- `F9`: load saved run snapshot
+- Shop mode:
+  - `1/2/3` buy offers
+  - `E` reroll
+  - `Q/W/R/T/Y` sell joker slots `1..5`
+  - `A/S/D/F/G` sell bought-card slots `1..5`
+  - `Z/X/V` deck edit (remove/upgrade/duplicate)
+  - `C` continue
 - `Enter` / `Space` on result screen: start new run
 
 ## How To Test
@@ -75,6 +84,18 @@ Run deterministic simulation specs (multi-turn seeded scenarios):
 busted spec/simulation_spec.lua
 ```
 
+Run projection golden specs (joker combination snapshots):
+
+```bash
+busted spec/projection_golden_spec.lua
+```
+
+Run progression/economy regression specs:
+
+```bash
+busted spec/progression_economy_regression_spec.lua
+```
+
 ### 3. Manual gameplay verification in LÖVE
 
 Run `love .` and verify:
@@ -86,7 +107,9 @@ Run `love .` and verify:
 5. `T` toggles between light and dark card sprite sets.
 6. Clearing a blind grants money payout (`small=4`, `big=7`, `boss=12` + ante bonus) and enters shop.
 7. Shop allows buying offers, rerolling, and continuing to the next blind.
-8. On run end, a result overlay appears with per-round stats and totals.
+8. Shop supports selling jokers/cards and deck edits (remove/upgrade/duplicate).
+9. Hovering shop rows/cards/actions shows expected-value tooltips.
+10. On run end, a result overlay appears with per-round stats and totals.
 
 ## Notes
 
@@ -95,6 +118,9 @@ Run `love .` and verify:
 - `main.lua` now includes queued card transitions with tweened play/discard/deal animations.
 - CI (`.github/workflows/lua-tests.yml`) runs both smoke test and full `busted` suite on push/PR.
 - Joker icon sheet is loaded from `assets/cards/jkrs_nobg.png` (12-slot grid, `4x3`) with fallback to UI icon sheets.
+- Runtime tunables are centralized in `config/tunables.lua`; `src/game_logic.lua` loads them through `config/init.lua`.
+- Save/load snapshots are versioned (`schema v1`) and stored at `saves/run_state.lua` in LÖVE's save directory.
+- Typography uses a pixel-font fallback stack (`assets/fonts/*.ttf` if present) with strict scale tokens: `tiny/small/medium/title` and a 4px spacing grid.
 
 ## Adding New Jokers (Easy Path)
 

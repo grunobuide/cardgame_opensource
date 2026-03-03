@@ -1,4 +1,5 @@
 local game = require("src.game_logic")
+local config = require("config.init")
 
 local function deterministic_rng(min, _max)
   return min
@@ -6,6 +7,14 @@ end
 
 describe("game_logic", function()
   describe("deck/state bootstrap", function()
+    it("loads tunables from config layer", function()
+      local defaults = config.defaults()
+      assert.are.equal(defaults.run.starting_hands, game.STARTING_HANDS)
+      assert.are.equal(defaults.run.starting_discards, game.STARTING_DISCARDS)
+      assert.are.equal(defaults.shop.offer_count, game.SHOP.offer_count)
+      assert.are.equal(defaults.inventory.schema, game.INVENTORY_SCHEMA)
+    end)
+
     it("creates a 52-card deck", function()
       local deck = game.build_deck(deterministic_rng)
       assert.are.equal(52, #deck)
@@ -131,10 +140,15 @@ describe("game_logic", function()
       game.toggle_selection(state, 1)
       local result = game.play_selected(state)
       assert.is_true(result.ok)
-      assert.are.equal("next_blind", result.event)
+      assert.are.equal("shop", result.event)
       assert.are.equal(game.BLIND_PAYOUTS.small, result.payout)
       assert.are.equal(game.BLIND_PAYOUTS.small, state.money)
+      assert.is_true(state.shop and state.shop.active)
       assert.are.equal(1, state.ante)
+
+      local cont = game.shop_continue(state)
+      assert.is_true(cont.ok)
+      assert.are.equal("next_blind", cont.event)
       assert.are.equal(2, state.blind_index)
       assert.are.equal(0, state.score)
       assert.are.equal(game.STARTING_HANDS, state.hands)
@@ -148,7 +162,10 @@ describe("game_logic", function()
       game.toggle_selection(state, 1)
       local result = game.play_selected(state)
       assert.is_true(result.ok)
-      assert.are.equal("next_ante", result.event)
+      assert.are.equal("shop", result.event)
+      local cont = game.shop_continue(state)
+      assert.is_true(cont.ok)
+      assert.are.equal("next_ante", cont.event)
       assert.are.equal(2, state.ante)
       assert.are.equal(1, state.blind_index)
       assert.are.equal(0, state.score)
@@ -250,9 +267,10 @@ describe("game_logic", function()
       game.toggle_selection(state, 1)
       local clear = game.play_selected(state)
       assert.is_true(clear.ok)
-      assert.are.equal("next_blind", clear.event)
+      assert.are.equal("shop", clear.event)
       assert.is_true((clear.payout or 0) > 0)
       assert.are.equal(clear.money, state.money)
+      assert.is_true(state.shop and state.shop.active)
     end)
 
     it("enters shop on blind clear and continues progression after shop", function()
@@ -282,6 +300,12 @@ describe("game_logic", function()
 
       state.money = 100
       local before_jokers = #state.jokers
+      state.shop.offers[1] = {
+        type = "joker",
+        joker_key = "JOKER",
+        rarity = "common",
+        price = game.SHOP.prices.common,
+      }
 
       local buy = game.shop_buy_offer(state, 1)
       assert.is_true(buy.ok)
@@ -292,6 +316,235 @@ describe("game_logic", function()
       assert.is_true(reroll.ok)
       assert.are.equal("shop_rerolled", reroll.event)
       assert.is_true((state.shop.reroll_cost or 0) > game.SHOP.reroll_base_cost)
+    end)
+
+    it("supports card offers and keeps bought cards in run deck pool", function()
+      local state = game.new_state(deterministic_rng)
+      state.score = game.current_target(state) - 1
+      game.toggle_selection(state, 1)
+      local clear = game.play_selected(state)
+      assert.are.equal("shop", clear.event)
+
+      state.money = 100
+      state.shop.offers[1] = {
+        type = "card",
+        card = { rank = "A", suit = "S" },
+        rarity = "card",
+        price = 6,
+      }
+
+      local buy = game.shop_buy_offer(state, 1)
+      assert.is_true(buy.ok)
+      assert.are.equal("card", buy.offer_type)
+      assert.are.equal(1, #state.owned_cards)
+      assert.are.equal("A", state.owned_cards[1].rank)
+      assert.are.equal("S", state.owned_cards[1].suit)
+
+      local deck = game.build_run_deck(state)
+      assert.are.equal(53, #deck)
+    end)
+
+    it("supports selling jokers and bought cards from shop", function()
+      local state = game.new_state(deterministic_rng)
+      state.score = game.current_target(state) - 1
+      game.toggle_selection(state, 1)
+      local clear = game.play_selected(state)
+      assert.are.equal("shop", clear.event)
+
+      state.money = 0
+      state.jokers = { "JOKER", "GREEDY_JOKER" }
+      state.owned_cards = {
+        { rank = "A", suit = "S" },
+        { rank = 10, suit = "H" },
+      }
+
+      local sell_joker = game.shop_sell_joker(state, 2)
+      assert.is_true(sell_joker.ok)
+      assert.are.equal("shop_sold_joker", sell_joker.event)
+      assert.are.equal(1, #state.jokers)
+      assert.is_true(state.money > 0)
+
+      local money_after_joker = state.money
+      local sell_card = game.shop_sell_card(state, 1)
+      assert.is_true(sell_card.ok)
+      assert.are.equal("shop_sold_card", sell_card.event)
+      assert.are.equal(1, #state.owned_cards)
+      assert.is_true(state.money > money_after_joker)
+    end)
+
+    it("supports deck editing remove/upgrade/duplicate during shop", function()
+      local state = game.new_state(deterministic_rng)
+      state.score = game.current_target(state) - 1
+      game.toggle_selection(state, 1)
+      local clear = game.play_selected(state)
+      assert.are.equal("shop", clear.event)
+
+      state.money = 100
+      state.deck_cards = {
+        { rank = 2, suit = "S" },
+        { rank = "A", suit = "H" },
+        { rank = 5, suit = "D" },
+        { rank = 6, suit = "C" },
+        { rank = 7, suit = "S" },
+        { rank = 8, suit = "H" },
+        { rank = 9, suit = "D" },
+        { rank = 10, suit = "C" },
+        { rank = "J", suit = "S" },
+      }
+      state.owned_cards = {}
+
+      local before_size = #state.deck_cards
+      local remove = game.shop_deck_remove(state)
+      assert.is_true(remove.ok)
+      assert.are.equal("shop_deck_removed", remove.event)
+      assert.are.equal(before_size - 1, #state.deck_cards)
+
+      local before_upgrade_rank = state.deck_cards[1].rank
+      local upgrade = game.shop_deck_upgrade(state)
+      assert.is_true(upgrade.ok)
+      assert.are.equal("shop_deck_upgraded", upgrade.event)
+      assert.are_not.equal(upgrade.before, upgrade.after)
+      assert.are.equal("A", before_upgrade_rank)
+
+      local before_dup = #state.deck_cards
+      local duplicate = game.shop_deck_duplicate(state)
+      assert.is_true(duplicate.ok)
+      assert.are.equal("shop_deck_duplicated", duplicate.event)
+      assert.are.equal(before_dup + 1, #state.deck_cards)
+    end)
+  end)
+
+  describe("persistent per-run inventory", function()
+    it("initializes schema-backed run inventory with aliases", function()
+      local state = game.new_state(deterministic_rng)
+      assert.is_truthy(state.inventory)
+      assert.are.equal(game.INVENTORY_SCHEMA, state.inventory.schema)
+      assert.are.equal(state.jokers, state.inventory.jokers)
+      assert.are.equal(state.deck_cards, state.inventory.deck_cards)
+      assert.are.equal(state.owned_cards, state.inventory.owned_cards)
+    end)
+
+    it("persists inventory across shop continue and blind progression", function()
+      local state = game.new_state(deterministic_rng)
+      state.score = game.current_target(state) - 1
+      game.toggle_selection(state, 1)
+      local clear = game.play_selected(state)
+      assert.are.equal("shop", clear.event)
+
+      state.money = 100
+      state.shop.offers[1] = {
+        type = "joker",
+        joker_key = "JOKER",
+        rarity = "common",
+        price = game.SHOP.prices.common,
+      }
+      state.shop.offers[2] = {
+        type = "card",
+        card = { rank = "A", suit = "S" },
+        rarity = "card",
+        price = 6,
+      }
+
+      local b1 = game.shop_buy_offer(state, 1)
+      assert.is_true(b1.ok)
+      local b2 = game.shop_buy_offer(state, 2)
+      assert.is_true(b2.ok)
+      assert.are.equal(1, #state.jokers)
+      assert.are.equal(1, #state.owned_cards)
+
+      local cont = game.shop_continue(state)
+      assert.is_true(cont.ok)
+      assert.are.equal("next_blind", cont.event)
+      assert.are.equal(1, #state.jokers)
+      assert.are.equal(1, #state.owned_cards)
+      assert.is_truthy(state.inventory)
+      assert.are.equal(1, state.inventory.schema)
+    end)
+
+    it("resets inventory model on new run", function()
+      local state = game.new_state(deterministic_rng)
+      state.jokers[#state.jokers + 1] = "JOKER"
+      state.owned_cards[#state.owned_cards + 1] = { rank = "A", suit = "S" }
+      state.deck_cards[#state.deck_cards + 1] = { rank = "K", suit = "H" }
+      state.money = 77
+      game.new_run(state)
+
+      assert.are.equal(0, #state.jokers)
+      assert.are.equal(0, #state.owned_cards)
+      assert.are.equal(52, #state.deck_cards)
+      assert.are.equal(0, state.money)
+      assert.are.equal(game.INVENTORY_SCHEMA, state.inventory.schema)
+      local snap = game.inventory_snapshot(state)
+      assert.are.equal(0, snap.earned)
+      assert.are.equal(0, snap.spent)
+      assert.are.equal(0, snap.history_size)
+    end)
+
+    it("tracks earnings/spending in inventory ledger", function()
+      local state = game.new_state(deterministic_rng)
+      state.score = game.current_target(state) - 1
+      game.toggle_selection(state, 1)
+      local clear = game.play_selected(state)
+      assert.are.equal("shop", clear.event)
+      assert.is_true((state.money or 0) > 0)
+
+      state.shop.offers[1] = {
+        type = "joker",
+        joker_key = "JOKER",
+        rarity = "common",
+        price = 2,
+      }
+      local buy = game.shop_buy_offer(state, 1)
+      assert.is_true(buy.ok)
+
+      local snap = game.inventory_snapshot(state)
+      assert.is_true((snap.earned or 0) > 0)
+      assert.is_true((snap.spent or 0) > 0)
+      assert.is_true((snap.history_size or 0) >= 2)
+    end)
+  end)
+
+  describe("shop expected value hints", function()
+    it("returns EV payloads for core shop actions", function()
+      local state = game.new_state(deterministic_rng)
+      state.score = game.current_target(state) - 1
+      game.toggle_selection(state, 1)
+      local clear = game.play_selected(state)
+      assert.are.equal("shop", clear.event)
+
+      state.money = 100
+      state.shop.offers[1] = {
+        type = "joker",
+        joker_key = "JOKER",
+        rarity = "common",
+        price = game.SHOP.prices.common,
+      }
+      state.shop.offers[2] = {
+        type = "card",
+        card = { rank = "A", suit = "S" },
+        rarity = "card",
+        price = 6,
+      }
+
+      local buy_joker = game.shop_expected_value(state, { action = "buy_offer", offer = state.shop.offers[1] })
+      assert.is_truthy(buy_joker)
+      assert.is_truthy(buy_joker.combined)
+      assert.is_truthy(buy_joker.verdict)
+
+      local buy_card = game.shop_expected_value(state, { action = "buy_offer", offer = state.shop.offers[2] })
+      assert.is_truthy(buy_card)
+      assert.is_truthy(buy_card.combined)
+
+      local reroll = game.shop_expected_value(state, { action = "reroll", cost = state.shop.reroll_cost })
+      assert.is_truthy(reroll)
+      assert.is_truthy(reroll.combined)
+
+      state.jokers = { "JOKER" }
+      state.owned_cards = { { rank = "K", suit = "H" } }
+      local sell_joker = game.shop_expected_value(state, { action = "sell_joker", slot = 1 })
+      local sell_card = game.shop_expected_value(state, { action = "sell_card", slot = 1 })
+      assert.is_truthy(sell_joker.combined)
+      assert.is_truthy(sell_card.combined)
     end)
   end)
 end)

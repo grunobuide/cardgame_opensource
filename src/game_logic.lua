@@ -1,34 +1,36 @@
 local M = {}
+local Config = require("config.init")
 
-M.SUITS = { "S", "H", "D", "C" }
-M.RANKS = { 2, 3, 4, 5, 6, 7, 8, 9, 10, "J", "Q", "K", "A" }
-M.ANTE_TARGETS = { 200, 400, 700 }
-M.MAX_ANTE = #M.ANTE_TARGETS
-M.BLINDS = {
-  { id = "small", label = "Small Blind", target_mult = 1.0 },
-  { id = "big", label = "Big Blind", target_mult = 1.65 },
-  { id = "boss", label = "Boss Blind", target_mult = 2.35 },
-}
-M.BLIND_PAYOUTS = {
-  small = 4,
-  big = 7,
-  boss = 12,
-}
-M.SHOP = {
-  offer_count = 3,
-  reroll_base_cost = 2,
-  reroll_cost_step = 1,
-  prices = {
-    common = 6,
-    uncommon = 8,
-    rare = 11,
-  },
-}
-M.STARTING_HANDS = 5
-M.STARTING_DISCARDS = 2
-M.HAND_SIZE = 8
-M.MAX_SELECT = 5
-M.MAX_JOKERS = 5
+local function apply_tunables(tunables)
+  local cards = tunables.cards or {}
+  local run = tunables.run or {}
+  M.CONFIG = tunables
+  M.SUITS = cards.suits or { "S", "H", "D", "C" }
+  M.RANKS = cards.ranks or { 2, 3, 4, 5, 6, 7, 8, 9, 10, "J", "Q", "K", "A" }
+  M.ANTE_TARGETS = run.ante_targets or { 200, 400, 700 }
+  M.MAX_ANTE = #M.ANTE_TARGETS
+  M.BLINDS = tunables.blinds or {
+    { id = "small", label = "Small Blind", target_mult = 1.0 },
+    { id = "big", label = "Big Blind", target_mult = 1.65 },
+    { id = "boss", label = "Boss Blind", target_mult = 2.35 },
+  }
+  M.BLIND_PAYOUTS = tunables.payouts or { small = 4, big = 7, boss = 12 }
+  M.SHOP = tunables.shop or {}
+  M.STARTING_HANDS = run.starting_hands or 5
+  M.STARTING_DISCARDS = run.starting_discards or 2
+  M.HAND_SIZE = run.hand_size or 8
+  M.MAX_SELECT = run.max_select or 5
+  M.MAX_JOKERS = run.max_jokers or 5
+  M.INVENTORY_SCHEMA = ((tunables.inventory or {}).schema) or 1
+end
+
+function M.load_tunables(overrides)
+  local tunables = Config.load(overrides)
+  apply_tunables(tunables)
+  return tunables
+end
+
+M.load_tunables()
 
 M.HAND_TYPES = {
   HIGH_CARD = { id = "HIGH_CARD", label = "High Card", chips = 5, mult = 1 },
@@ -97,6 +99,140 @@ local function to_suit_code(suit)
   return suit
 end
 
+local function clone_card(card)
+  return { suit = to_suit_code(card.suit), rank = card.rank }
+end
+
+local function card_label(card)
+  return ("%s%s"):format(tostring(card.rank), tostring(to_suit_code(card.suit)))
+end
+
+local function card_offer_price(card)
+  local value = M.rank_to_value(card.rank)
+  local premium = 0
+  if value >= 14 then
+    premium = 2
+  elseif value >= 11 then
+    premium = 1
+  end
+  return (M.SHOP.prices.card_base or 4) + premium
+end
+
+local function joker_sell_price(joker_key)
+  local joker = M.JOKERS[joker_key]
+  local rarity = joker and joker.rarity or "common"
+  local buy_price = M.SHOP.prices[rarity] or M.SHOP.prices.common
+  return math.max(1, math.floor((buy_price * (M.SHOP.sell_ratio or 0.5)) + 0.5))
+end
+
+local function card_sell_price(card)
+  local buy_price = card_offer_price(card)
+  return math.max(1, math.floor((buy_price * (M.SHOP.sell_ratio or 0.5)) + 0.5))
+end
+
+local function clamp(value, min_v, max_v)
+  if value < min_v then
+    return min_v
+  end
+  if value > max_v then
+    return max_v
+  end
+  return value
+end
+
+local function parse_formula_hint(formula)
+  local text = tostring(formula or "")
+  local chips = 0
+  local mult = 0
+  for number in text:gmatch("%+(%d+)%s*[Cc]") do
+    chips = chips + tonumber(number)
+  end
+  for number in text:gmatch("%+(%d+)%s*[Mm]") do
+    mult = mult + tonumber(number)
+  end
+  if chips == 0 and mult == 0 then
+    local fallback = 0
+    for number in text:gmatch("%+(%d+)") do
+      fallback = fallback + tonumber(number)
+    end
+    mult = fallback
+  end
+  return chips, mult
+end
+
+local function score_ev_for_card(card)
+  local value = M.rank_to_value(card.rank)
+  local base = (value - 8) * 1.3
+  if card.rank == "A" then
+    base = base + 1.5
+  elseif card.rank == "K" or card.rank == "Q" or card.rank == "J" then
+    base = base + 0.6
+  end
+  return base
+end
+
+local function score_ev_for_joker(joker)
+  if not joker then
+    return 0
+  end
+  local rarity_bonus = 4
+  if joker.rarity == "uncommon" then
+    rarity_bonus = 7
+  elseif joker.rarity == "rare" then
+    rarity_bonus = 11
+  end
+  local chips, mult = parse_formula_hint(joker.formula)
+  local formula_bonus = (chips * 0.14) + (mult * 2.1)
+  return rarity_bonus + formula_bonus
+end
+
+local function normalize_ev(score_ev, money_ev)
+  local combined = score_ev + (money_ev * 1.1)
+  local verdict = "neutral"
+  if combined >= 2 then
+    verdict = "good"
+  elseif combined <= -2 then
+    verdict = "risky"
+  end
+  return {
+    score_ev = math.floor(score_ev * 10 + 0.5) / 10,
+    money_ev = math.floor(money_ev * 10 + 0.5) / 10,
+    combined = math.floor(combined * 10 + 0.5) / 10,
+    verdict = verdict,
+  }
+end
+
+local function find_card_index_by_ref(cards, target)
+  for i, card in ipairs(cards or {}) do
+    if card == target then
+      return i
+    end
+  end
+  return nil
+end
+
+local function find_card_index_by_value(cards, target)
+  if not target then
+    return nil
+  end
+  local suit = to_suit_code(target.suit)
+  for i, card in ipairs(cards or {}) do
+    if card.rank == target.rank and to_suit_code(card.suit) == suit then
+      return i
+    end
+  end
+  return nil
+end
+
+local function next_rank(rank)
+  for i, value in ipairs(M.RANKS) do
+    if value == rank then
+      return M.RANKS[math.min(#M.RANKS, i + 1)]
+    end
+  end
+  return rank
+end
+
 local function sort_numeric(values)
   table.sort(values, function(a, b)
     return a < b
@@ -114,6 +250,135 @@ local function selected_indices(state)
   return out
 end
 
+local function copy_cards(cards)
+  local out = {}
+  for i, card in ipairs(cards or {}) do
+    out[i] = clone_card(card)
+  end
+  return out
+end
+
+local function shuffle_cards(cards, rnd)
+  local rng = rnd or default_rng
+  for i = #cards, 2, -1 do
+    local j = rng(1, i)
+    cards[i], cards[j] = cards[j], cards[i]
+  end
+  return cards
+end
+
+local function sync_inventory_aliases(state)
+  if not state.inventory then
+    return
+  end
+  state.jokers = state.inventory.jokers
+  state.deck_cards = state.inventory.deck_cards
+  state.owned_cards = state.inventory.owned_cards
+end
+
+function M.ensure_run_inventory(state)
+  local inv = state.inventory
+  if not inv then
+    inv = {
+      schema = M.INVENTORY_SCHEMA,
+      next_event_index = 1,
+      jokers = state.jokers or {},
+      deck_cards = state.deck_cards or M.build_base_deck(),
+      owned_cards = state.owned_cards or {},
+      ledger = {
+        earned = 0,
+        spent = 0,
+      },
+      history = {},
+    }
+    state.inventory = inv
+  else
+    inv.schema = inv.schema or M.INVENTORY_SCHEMA
+    inv.next_event_index = inv.next_event_index or 1
+    if state.jokers and state.jokers ~= inv.jokers then
+      inv.jokers = state.jokers
+    end
+    if state.deck_cards and state.deck_cards ~= inv.deck_cards then
+      inv.deck_cards = state.deck_cards
+    end
+    if state.owned_cards and state.owned_cards ~= inv.owned_cards then
+      inv.owned_cards = state.owned_cards
+    end
+    inv.jokers = inv.jokers or {}
+    inv.deck_cards = inv.deck_cards or M.build_base_deck()
+    inv.owned_cards = inv.owned_cards or {}
+    inv.ledger = inv.ledger or { earned = 0, spent = 0 }
+    inv.history = inv.history or {}
+  end
+  sync_inventory_aliases(state)
+  return state.inventory
+end
+
+function M.init_run_inventory(state)
+  state.inventory = {
+    schema = M.INVENTORY_SCHEMA,
+    next_event_index = 1,
+    jokers = {},
+    deck_cards = M.build_base_deck(),
+    owned_cards = {},
+    ledger = {
+      earned = 0,
+      spent = 0,
+    },
+    history = {},
+  }
+  sync_inventory_aliases(state)
+  return state.inventory
+end
+
+local function record_inventory_event(state, event, payload)
+  local inv = M.ensure_run_inventory(state)
+  local index = inv.next_event_index or (#inv.history + 1)
+  inv.next_event_index = index + 1
+  inv.history[#inv.history + 1] = {
+    index = index,
+    event = event,
+    ante = state.ante or 1,
+    blind_index = state.blind_index or 1,
+    money = state.money or 0,
+    payload = payload or {},
+  }
+end
+
+local function inventory_earn(state, amount, event, payload)
+  local gain = math.max(0, tonumber(amount or 0) or 0)
+  state.money = (state.money or 0) + gain
+  local inv = M.ensure_run_inventory(state)
+  inv.ledger.earned = (inv.ledger.earned or 0) + gain
+  record_inventory_event(state, event, payload or { amount = gain })
+  return gain
+end
+
+local function inventory_spend(state, amount, event, payload)
+  local cost = math.max(0, tonumber(amount or 0) or 0)
+  state.money = (state.money or 0) - cost
+  local inv = M.ensure_run_inventory(state)
+  inv.ledger.spent = (inv.ledger.spent or 0) + cost
+  record_inventory_event(state, event, payload or { amount = cost })
+  return cost
+end
+
+function M.inventory_snapshot(state)
+  local inv = M.ensure_run_inventory(state)
+  local earned = inv.ledger.earned or 0
+  local spent = inv.ledger.spent or 0
+  return {
+    schema = inv.schema or M.INVENTORY_SCHEMA,
+    jokers = #inv.jokers,
+    deck_cards = #inv.deck_cards,
+    owned_cards = #inv.owned_cards,
+    earned = earned,
+    spent = spent,
+    net = earned - spent,
+    history_size = #inv.history,
+  }
+end
+
 function M.selected_count(state)
   local count = 0
   for _, is_selected in pairs(state.selected) do
@@ -128,8 +393,7 @@ function M.clear_selection(state)
   state.selected = {}
 end
 
-function M.build_deck(rng)
-  local rnd = rng or default_rng
+function M.build_base_deck()
   local deck = {}
 
   for _, suit in ipairs(M.SUITS) do
@@ -138,12 +402,28 @@ function M.build_deck(rng)
     end
   end
 
-  for i = #deck, 2, -1 do
-    local j = rnd(1, i)
-    deck[i], deck[j] = deck[j], deck[i]
+  return deck
+end
+
+function M.build_deck(rng, extra_cards)
+  local rnd = rng or default_rng
+  local deck = M.build_base_deck()
+
+  if extra_cards then
+    for _, card in ipairs(extra_cards) do
+      deck[#deck + 1] = clone_card(card)
+    end
   end
 
-  return deck
+  return shuffle_cards(deck, rnd)
+end
+
+function M.build_run_deck(state)
+  M.ensure_run_inventory(state)
+  if state.deck_cards and #state.deck_cards > 0 then
+    return shuffle_cards(copy_cards(state.deck_cards), state.rng)
+  end
+  return M.build_deck(state.rng, state.owned_cards)
 end
 
 function M.target_score(ante)
@@ -174,7 +454,10 @@ end
 
 function M.award_blind_clear_payout(state, blind)
   local payout = M.blind_clear_payout(state, blind)
-  state.money = (state.money or 0) + payout
+  inventory_earn(state, payout, "blind_clear_payout", {
+    blind = (blind or M.current_blind(state)).id,
+    amount = payout,
+  })
   return payout
 end
 
@@ -186,9 +469,22 @@ local function shop_offer_from_joker_key(state, joker_key)
   local rarity = joker.rarity or "common"
   local price = M.SHOP.prices[rarity] or M.SHOP.prices.common
   return {
+    type = "joker",
     joker_key = joker_key,
     price = price,
     rarity = rarity,
+  }
+end
+
+local function shop_offer_from_card(state)
+  local rank = M.RANKS[state.rng(1, #M.RANKS)]
+  local suit = M.SUITS[state.rng(1, #M.SUITS)]
+  local card = { rank = rank, suit = suit }
+  return {
+    type = "card",
+    card = card,
+    price = card_offer_price(card),
+    rarity = "card",
   }
 end
 
@@ -202,13 +498,146 @@ function M.roll_shop_offers(state, count)
 
   local offers = {}
   for i = 1, total do
-    local key = keys[state.rng(1, #keys)]
-    offers[#offers + 1] = shop_offer_from_joker_key(state, key)
+    local offer
+    local roll = state.rng(1, 100)
+    local joker_weight = M.SHOP.joker_offer_weight or 70
+    if #keys == 0 then
+      offer = shop_offer_from_card(state)
+    elseif roll <= joker_weight then
+      local key = keys[state.rng(1, #keys)]
+      offer = shop_offer_from_joker_key(state, key)
+    else
+      offer = shop_offer_from_card(state)
+    end
+    offers[#offers + 1] = offer
   end
   return offers
 end
 
+local function average_joker_offer_ev()
+  local total = 0
+  local count = 0
+  for _, joker in pairs(M.JOKERS) do
+    total = total + score_ev_for_joker(joker)
+    count = count + 1
+  end
+  if count == 0 then
+    return 0
+  end
+  return total / count
+end
+
+local function average_card_offer_ev()
+  local total = 0
+  local count = 0
+  for _, rank in ipairs(M.RANKS) do
+    total = total + score_ev_for_card({ rank = rank, suit = "S" })
+    count = count + 1
+  end
+  if count == 0 then
+    return 0
+  end
+  return total / count
+end
+
+function M.shop_expected_value(state, subject)
+  M.ensure_run_inventory(state)
+  local info = subject or {}
+  local action = info.action or "buy_offer"
+
+  if action == "buy_offer" then
+    local offer = info.offer
+    if not offer then
+      return normalize_ev(0, 0)
+    end
+    if offer.type == "card" then
+      local score_ev = score_ev_for_card(offer.card or { rank = 8, suit = "S" })
+      local money_ev = card_sell_price(offer.card or { rank = 8, suit = "S" }) - (offer.price or 0)
+      local out = normalize_ev(score_ev, money_ev)
+      out.label = "Card Offer"
+      return out
+    end
+    local joker = M.JOKERS[offer.joker_key]
+    local score_ev = score_ev_for_joker(joker)
+    local money_ev = joker_sell_price(offer.joker_key) - (offer.price or 0)
+    local out = normalize_ev(score_ev, money_ev)
+    out.label = "Joker Offer"
+    return out
+  end
+
+  if action == "reroll" then
+    local cost = tonumber(info.cost) or ((state.shop and state.shop.reroll_cost) or M.SHOP.reroll_base_cost)
+    local joker_weight = clamp((M.SHOP.joker_offer_weight or 70) / 100, 0, 1)
+    local card_weight = 1 - joker_weight
+    local avg_offer_score = (average_joker_offer_ev() * joker_weight) + (average_card_offer_ev() * card_weight)
+    local score_ev = avg_offer_score * 1.2
+    local money_ev = -cost
+    local out = normalize_ev(score_ev, money_ev)
+    out.label = "Reroll"
+    return out
+  end
+
+  if action == "sell_joker" then
+    local slot = tonumber(info.slot or 0)
+    local joker_key = state.jokers[slot]
+    if not joker_key then
+      return normalize_ev(0, 0)
+    end
+    local joker = M.JOKERS[joker_key]
+    local score_ev = -score_ev_for_joker(joker) * 0.85
+    local money_ev = joker_sell_price(joker_key)
+    local out = normalize_ev(score_ev, money_ev)
+    out.label = "Sell Joker"
+    return out
+  end
+
+  if action == "sell_card" then
+    local slot = tonumber(info.slot or 0)
+    local card = state.owned_cards[slot]
+    if not card then
+      return normalize_ev(0, 0)
+    end
+    local score_ev = -score_ev_for_card(card) * 0.65
+    local money_ev = card_sell_price(card)
+    local out = normalize_ev(score_ev, money_ev)
+    out.label = "Sell Card"
+    return out
+  end
+
+  if action == "deck_remove" then
+    local cost = (M.SHOP.deck_edit_costs and M.SHOP.deck_edit_costs.remove) or 3
+    local over_base = math.max(0, #state.deck_cards - 52)
+    local score_ev = 0.8 + (over_base * 0.15)
+    local money_ev = -cost
+    local out = normalize_ev(score_ev, money_ev)
+    out.label = "Deck Remove"
+    return out
+  end
+
+  if action == "deck_upgrade" then
+    local cost = (M.SHOP.deck_edit_costs and M.SHOP.deck_edit_costs.upgrade) or 4
+    local score_ev = 3.6
+    local money_ev = -cost
+    local out = normalize_ev(score_ev, money_ev)
+    out.label = "Deck Upgrade"
+    return out
+  end
+
+  if action == "deck_duplicate" then
+    local cost = (M.SHOP.deck_edit_costs and M.SHOP.deck_edit_costs.duplicate) or 5
+    local avg_rank_ev = average_card_offer_ev()
+    local score_ev = 1.2 + (avg_rank_ev * 0.45)
+    local money_ev = -cost
+    local out = normalize_ev(score_ev, money_ev)
+    out.label = "Deck Duplicate"
+    return out
+  end
+
+  return normalize_ev(0, 0)
+end
+
 function M.open_shop(state, clear_event)
+  M.ensure_run_inventory(state)
   state.shop = {
     active = true,
     offers = M.roll_shop_offers(state, M.SHOP.offer_count),
@@ -218,6 +647,7 @@ function M.open_shop(state, clear_event)
 end
 
 function M.shop_buy_offer(state, index)
+  M.ensure_run_inventory(state)
   local shop = state.shop
   if not shop or not shop.active then
     return { ok = false, reason = "shop_inactive", message = "Shop is not open." }
@@ -226,22 +656,43 @@ function M.shop_buy_offer(state, index)
   if not offer then
     return { ok = false, reason = "invalid_offer", message = "Invalid shop offer." }
   end
-  if #state.jokers >= M.MAX_JOKERS then
-    return { ok = false, reason = "max_jokers", message = "Max 5 Jokers!" }
-  end
   if (state.money or 0) < offer.price then
     return { ok = false, reason = "insufficient_money", message = "Not enough money." }
   end
 
-  state.money = state.money - offer.price
-  state.jokers[#state.jokers + 1] = offer.joker_key
-  local joker_name = M.JOKERS[offer.joker_key] and M.JOKERS[offer.joker_key].name or offer.joker_key
+  if offer.type == "joker" and #state.jokers >= M.MAX_JOKERS then
+    return { ok = false, reason = "max_jokers", message = "Max 5 Jokers!" }
+  end
+
+  inventory_spend(state, offer.price, "shop_buy", {
+    offer_type = offer.type,
+    index = index,
+    price = offer.price,
+  })
+  local event = "shop_bought"
+  local payload = { ok = true, event = event, cost = offer.price, money = state.money }
+
+  if offer.type == "joker" then
+    state.jokers[#state.jokers + 1] = offer.joker_key
+    local joker_name = M.JOKERS[offer.joker_key] and M.JOKERS[offer.joker_key].name or offer.joker_key
+    payload.joker_key = offer.joker_key
+    payload.offer_type = "joker"
+    state.message = ("Bought %s for $%d."):format(joker_name, offer.price)
+  else
+    local card = clone_card(offer.card)
+    state.deck_cards[#state.deck_cards + 1] = card
+    state.owned_cards[#state.owned_cards + 1] = card
+    payload.card = card
+    payload.offer_type = "card"
+    state.message = ("Bought card %s for $%d."):format(card_label(card), offer.price)
+  end
+
   shop.offers[index] = nil
-  state.message = ("Bought %s for $%d."):format(joker_name, offer.price)
-  return { ok = true, event = "shop_bought", joker_key = offer.joker_key, cost = offer.price, money = state.money }
+  return payload
 end
 
 function M.shop_reroll(state)
+  M.ensure_run_inventory(state)
   local shop = state.shop
   if not shop or not shop.active then
     return { ok = false, reason = "shop_inactive", message = "Shop is not open." }
@@ -251,11 +702,171 @@ function M.shop_reroll(state)
     return { ok = false, reason = "insufficient_money", message = "Not enough money to reroll." }
   end
 
-  state.money = state.money - cost
+  inventory_spend(state, cost, "shop_reroll", { cost = cost })
   shop.offers = M.roll_shop_offers(state, M.SHOP.offer_count)
   shop.reroll_cost = cost + M.SHOP.reroll_cost_step
   state.message = ("Shop rerolled for $%d."):format(cost)
   return { ok = true, event = "shop_rerolled", cost = cost, next_reroll_cost = shop.reroll_cost, money = state.money }
+end
+
+function M.shop_deck_remove(state)
+  M.ensure_run_inventory(state)
+  local shop = state.shop
+  if not shop or not shop.active then
+    return { ok = false, reason = "shop_inactive", message = "Shop is not open." }
+  end
+
+  local cost = (M.SHOP.deck_edit_costs and M.SHOP.deck_edit_costs.remove) or 3
+  if (state.money or 0) < cost then
+    return { ok = false, reason = "insufficient_money", message = "Not enough money to remove a card." }
+  end
+  if #state.deck_cards <= M.HAND_SIZE then
+    return { ok = false, reason = "deck_too_small", message = "Deck is already at minimum size." }
+  end
+
+  local idx = state.rng(1, #state.deck_cards)
+  local removed = table.remove(state.deck_cards, idx)
+  local owned_idx = find_card_index_by_ref(state.owned_cards, removed)
+  if owned_idx then
+    table.remove(state.owned_cards, owned_idx)
+  end
+  inventory_spend(state, cost, "shop_deck_remove", { cost = cost, card = card_label(removed) })
+  state.message = ("Removed %s from deck for $%d."):format(card_label(removed), cost)
+  return {
+    ok = true,
+    event = "shop_deck_removed",
+    card = removed,
+    cost = cost,
+    money = state.money,
+    deck_size = #state.deck_cards,
+  }
+end
+
+function M.shop_deck_upgrade(state)
+  M.ensure_run_inventory(state)
+  local shop = state.shop
+  if not shop or not shop.active then
+    return { ok = false, reason = "shop_inactive", message = "Shop is not open." }
+  end
+
+  local cost = (M.SHOP.deck_edit_costs and M.SHOP.deck_edit_costs.upgrade) or 4
+  if (state.money or 0) < cost then
+    return { ok = false, reason = "insufficient_money", message = "Not enough money to upgrade a card." }
+  end
+
+  local candidates = {}
+  for i, card in ipairs(state.deck_cards) do
+    if card.rank ~= "A" then
+      candidates[#candidates + 1] = i
+    end
+  end
+  if #candidates == 0 then
+    return { ok = false, reason = "no_upgrade_targets", message = "No cards available to upgrade." }
+  end
+
+  local target_index = candidates[state.rng(1, #candidates)]
+  local card = state.deck_cards[target_index]
+  local before = card_label(card)
+  card.rank = next_rank(card.rank)
+  local after = card_label(card)
+  inventory_spend(state, cost, "shop_deck_upgrade", { cost = cost, before = before, after = after })
+  state.message = ("Upgraded %s -> %s for $%d."):format(before, after, cost)
+  return {
+    ok = true,
+    event = "shop_deck_upgraded",
+    before = before,
+    after = after,
+    cost = cost,
+    money = state.money,
+  }
+end
+
+function M.shop_deck_duplicate(state)
+  M.ensure_run_inventory(state)
+  local shop = state.shop
+  if not shop or not shop.active then
+    return { ok = false, reason = "shop_inactive", message = "Shop is not open." }
+  end
+
+  local cost = (M.SHOP.deck_edit_costs and M.SHOP.deck_edit_costs.duplicate) or 5
+  if (state.money or 0) < cost then
+    return { ok = false, reason = "insufficient_money", message = "Not enough money to duplicate a card." }
+  end
+  if #state.deck_cards == 0 then
+    return { ok = false, reason = "empty_deck", message = "Deck is empty." }
+  end
+
+  local idx = state.rng(1, #state.deck_cards)
+  local source = state.deck_cards[idx]
+  local clone = clone_card(source)
+  state.deck_cards[#state.deck_cards + 1] = clone
+  inventory_spend(state, cost, "shop_deck_duplicate", { cost = cost, card = card_label(clone) })
+  state.message = ("Duplicated %s for $%d."):format(card_label(clone), cost)
+  return {
+    ok = true,
+    event = "shop_deck_duplicated",
+    card = clone,
+    cost = cost,
+    money = state.money,
+    deck_size = #state.deck_cards,
+  }
+end
+
+function M.shop_sell_joker(state, index)
+  M.ensure_run_inventory(state)
+  local shop = state.shop
+  if not shop or not shop.active then
+    return { ok = false, reason = "shop_inactive", message = "Shop is not open." }
+  end
+  local i = tonumber(index or 0)
+  if i <= 0 or i > #state.jokers then
+    return { ok = false, reason = "invalid_sell_index", message = "Invalid Joker slot to sell." }
+  end
+
+  local joker_key = state.jokers[i]
+  local price = joker_sell_price(joker_key)
+  local joker_name = M.JOKERS[joker_key] and M.JOKERS[joker_key].name or joker_key
+  table.remove(state.jokers, i)
+  inventory_earn(state, price, "shop_sell_joker", { gain = price, joker_key = joker_key, slot = i })
+  state.message = ("Sold %s for $%d."):format(joker_name, price)
+  return {
+    ok = true,
+    event = "shop_sold_joker",
+    joker_key = joker_key,
+    slot = i,
+    gain = price,
+    money = state.money,
+  }
+end
+
+function M.shop_sell_card(state, index)
+  M.ensure_run_inventory(state)
+  local shop = state.shop
+  if not shop or not shop.active then
+    return { ok = false, reason = "shop_inactive", message = "Shop is not open." }
+  end
+  local i = tonumber(index or 0)
+  if i <= 0 or i > #state.owned_cards then
+    return { ok = false, reason = "invalid_sell_index", message = "Invalid card slot to sell." }
+  end
+
+  local card = state.owned_cards[i]
+  local price = card_sell_price(card)
+  table.remove(state.owned_cards, i)
+  local deck_idx = find_card_index_by_ref(state.deck_cards, card) or find_card_index_by_value(state.deck_cards, card)
+  if deck_idx then
+    table.remove(state.deck_cards, deck_idx)
+  end
+  inventory_earn(state, price, "shop_sell_card", { gain = price, card = card_label(card), slot = i })
+  state.message = ("Sold card %s for $%d."):format(card_label(card), price)
+  return {
+    ok = true,
+    event = "shop_sold_card",
+    card = card,
+    slot = i,
+    gain = price,
+    money = state.money,
+  }
 end
 
 function M.shop_continue(state)
@@ -469,6 +1080,9 @@ function M.new_state(rng, opts)
     hand = {},
     selected = {},
     jokers = {},
+    owned_cards = {},
+    deck_cards = {},
+    inventory = nil,
     game_over = false,
     run_won = false,
     message = "",
@@ -477,10 +1091,12 @@ function M.new_state(rng, opts)
     rng = rng or default_rng,
   }
   M.new_run(state)
+  M.ensure_run_inventory(state)
   return state
 end
 
 function M.set_seed(state, seed, rng)
+  M.ensure_run_inventory(state)
   state.seed = normalize_seed(seed)
   if state.seed == "" then
     state.seed = "random"
@@ -491,7 +1107,7 @@ end
 function M.draw_cards(state, count)
   for _ = 1, count do
     if #state.deck == 0 then
-      state.deck = M.build_deck(state.rng)
+      state.deck = M.build_run_deck(state)
     end
     state.hand[#state.hand + 1] = table.remove(state.deck)
   end
@@ -576,12 +1192,13 @@ function M.calculate_projection(state, cards)
 end
 
 function M.next_ante(state)
+  M.ensure_run_inventory(state)
   state.ante = state.ante + 1
   state.blind_index = 1
   state.score = 0
   state.hands = M.STARTING_HANDS
   state.discards = M.STARTING_DISCARDS
-  state.deck = M.build_deck(state.rng)
+  state.deck = M.build_run_deck(state)
   state.hand = {}
   M.draw_cards(state, M.HAND_SIZE)
   M.clear_selection(state)
@@ -589,6 +1206,7 @@ function M.next_ante(state)
 end
 
 function M.next_blind(state)
+  M.ensure_run_inventory(state)
   if state.blind_index >= #M.BLINDS then
     if state.ante >= M.MAX_ANTE then
       state.game_over = true
@@ -604,7 +1222,7 @@ function M.next_blind(state)
   state.score = 0
   state.hands = M.STARTING_HANDS
   state.discards = M.STARTING_DISCARDS
-  state.deck = M.build_deck(state.rng)
+  state.deck = M.build_run_deck(state)
   state.hand = {}
   M.draw_cards(state, M.HAND_SIZE)
   M.clear_selection(state)
@@ -621,6 +1239,9 @@ end
 function M.play_selected(state)
   if state.game_over then
     return { ok = false, reason = "game_over" }
+  end
+  if state.shop and state.shop.active then
+    return { ok = false, reason = "shop_active", message = "Finish the shop before playing." }
   end
   if state.hands <= 0 then
     return { ok = false, reason = "no_hands" }
@@ -680,6 +1301,9 @@ function M.discard_selected(state)
   if state.game_over then
     return { ok = false, reason = "game_over" }
   end
+  if state.shop and state.shop.active then
+    return { ok = false, reason = "shop_active", message = "Finish the shop before discarding." }
+  end
   if state.discards <= 0 then
     return { ok = false, reason = "no_discards", message = "No discards left this ante." }
   end
@@ -694,6 +1318,7 @@ function M.discard_selected(state)
 end
 
 function M.add_joker(state, forced_key)
+  M.ensure_run_inventory(state)
   if #state.jokers >= M.MAX_JOKERS then
     return { ok = false, reason = "max_jokers", message = "Max 5 Jokers!" }
   end
@@ -713,6 +1338,7 @@ function M.add_joker(state, forced_key)
   end
 
   state.jokers[#state.jokers + 1] = key
+  record_inventory_event(state, "add_joker_debug", { joker_key = key })
   state.message = ("Added %s!"):format(M.JOKERS[key].name)
   return { ok = true, joker_key = key }
 end
@@ -733,13 +1359,15 @@ function M.set_hand_to_royal_flush(state)
 end
 
 function M.new_run(state)
+  M.init_run_inventory(state)
   state.ante = 1
   state.blind_index = 1
   state.score = 0
   state.money = 0
   state.hands = M.STARTING_HANDS
   state.discards = M.STARTING_DISCARDS
-  state.deck = M.build_deck(state.rng)
+  sync_inventory_aliases(state)
+  state.deck = M.build_run_deck(state)
   state.hand = {}
   state.jokers = {}
   state.shop = nil
@@ -754,6 +1382,10 @@ function M.card_sprite_path(card, theme)
   local folder = (theme == "light") and "Cards/Cards" or "Cards/Cards_Dark"
   local suit = to_suit_code(card.suit)
   return ("%s/%s%s.png"):format(folder, suit, tostring(card.rank))
+end
+
+function M.card_label(card)
+  return card_label(card)
 end
 
 function M.joker_sprite_path(joker_key, theme)

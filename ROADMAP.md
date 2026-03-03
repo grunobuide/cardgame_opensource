@@ -2,7 +2,7 @@
 
 This roadmap is split into product milestones (`M1..M3`) and dedicated engineering tracks for architecture/testing.
 
-## M1 - Playable Run Loop (In Progress)
+## M1 - Playable Run Loop (Complete)
 
 Goal: a complete single-run core loop with clear progression and failure states.
 
@@ -21,10 +21,10 @@ Goal: meta decisions between blinds and an economy that shapes deck growth.
 
 - [x] Currency and payout rules per blind clear
 - [x] Shop scene between blinds
-- [ ] Buy/sell/reroll loop for jokers/cards
-- [ ] Deck editing (remove/upgrade/duplicate cards)
-- [ ] Persistent per-run inventory model
-- [ ] Shop UI polish + tooltips for expected value
+- [x] Buy/sell/reroll loop for jokers/cards
+- [x] Deck editing (remove/upgrade/duplicate cards)
+- [x] Persistent per-run inventory model
+- [x] Shop UI polish + tooltips for expected value
 
 ## M3 - Content + Progression
 
@@ -46,9 +46,9 @@ Goal: keep code maintainable as systems scale.
   - `scene/input.lua`
   - `scene/actions.lua`
   - `scene/card_visuals.lua`
-- [ ] Introduce a configuration layer (`config/`) for tunables
-- [ ] Introduce lightweight event bus for scene/UI decoupling
-- [ ] Save/load module with schema versioning
+- [x] Introduce a configuration layer (`config/`) for tunables
+- [x] Introduce lightweight event bus for scene/UI decoupling
+- [x] Save/load module with schema versioning
 
 ## MT - Testing Milestones
 
@@ -57,8 +57,8 @@ Goal: high-confidence gameplay changes with fast regression feedback.
 - [x] `busted` unit/state suite for core logic
 - [x] CI on push/PR running smoke + busted tests
 - [x] Deterministic simulation tests for multi-turn scenarios
-- [ ] Golden tests for projection outputs (joker combinations)
-- [ ] Regression tests for blind progression and economy phases
+- [x] Golden tests for projection outputs (joker combinations)
+- [x] Regression tests for blind progression and economy phases
 - [ ] Lua version matrix in CI (`5.1`, `5.4`)
 
 ## MU1 - Visual Foundation
@@ -82,16 +82,16 @@ What this implies for our next implementation pass:
   - Left: run status + upgrades
   - Center: hand/combat lane (primary focus)
   - Right: shop/jokers/details
-- [ ] Pixel component kit
+- [x] Pixel component kit
   - Reusable `PixelPanel`, `PixelButton`, `PixelBadge`, `PixelBar`, `PixelSlot`
   - Hard 2px borders, 2px shadows, no soft gradients/glow
-- [ ] Icon-first HUD
+- [x] Icon-first HUD
   - Every stat/action gets an icon + short token label
   - Move from text-heavy rows to compact status cards
-- [ ] Combat lane clarity
+- [x] Combat lane clarity
   - Center stack: round marker, enemies, hand, action buttons, boss bar
   - Bigger hand cards, clearer selected state
-- [ ] Typography direction
+- [x] Typography direction
   - Pixel font stack for titles + labels + values
   - Strict size scale (`tiny/small/medium/title`) and spacing grid
 
@@ -99,45 +99,45 @@ What this implies for our next implementation pass:
 
 Goal: make moment-to-moment play feel crisp and intentional.
 
-- [ ] Refine hand fan geometry and overlap behavior
-- [ ] Add hover intent states for cards/buttons/jokers
-- [ ] Improve selected-card state (lift, glow, border treatment)
-- [ ] Add contextual tooltips for jokers and controls
-- [ ] Add keyboard shortcut hints directly in UI
-- [ ] Add input feedback for invalid actions (not enough cards, no discards)
+- [x] Refine hand fan geometry and overlap behavior
+- [x] Add hover intent states for cards/buttons/jokers
+- [x] Improve selected-card state (lift, glow, border treatment)
+- [x] Add contextual tooltips for jokers and controls
+- [x] Add keyboard shortcut hints directly in UI
+- [x] Add input feedback for invalid actions (not enough cards, no discards)
 
 ## MU3 - Gameplay Feedback System
 
 Goal: improve clarity of scoring and progression feedback.
 
-- [ ] Add score breakdown strip (base -> joker modifiers -> total)
-- [ ] Add animated chip/mult deltas with clear sequencing
-- [ ] Improve blind pressure bar animation and threshold signaling
-- [ ] Add round transition banners (Blind Cleared, Next Blind, Ante Up)
-- [ ] Add richer run state messages with severity levels (info/warn/fail)
-- [ ] Add subtle screen-space effects for major events (boss clear, bust)
+- [x] Add score breakdown strip (base -> joker modifiers -> total)
+- [x] Add animated chip/mult deltas with clear sequencing
+- [x] Improve blind pressure bar animation and threshold signaling
+- [x] Add round transition banners (Blind Cleared, Next Blind, Ante Up)
+- [x] Add richer run state messages with severity levels (info/warn/fail)
+- [x] Add subtle screen-space effects for major events (boss clear, bust)
 
 ## MU4 - Motion & Animation Quality
 
 Goal: consistent, non-jittery motion language across the game.
 
-- [ ] Define animation timing/easing standards by interaction type
-- [ ] Add staggered deal/discard/play choreography
-- [ ] Add enter/exit transitions for panels and overlays
-- [ ] Add reduced-motion mode toggle
-- [ ] Prevent flicker on reorder/sort/deal by stabilizing visual identity keys
-- [ ] Profile and cap animation cost for smooth frame pacing
+- [x] Define animation timing/easing standards by interaction type
+- [x] Add staggered deal/discard/play choreography
+- [x] Add enter/exit transitions for panels and overlays
+- [x] Add reduced-motion mode toggle
+- [x] Prevent flicker on reorder/sort/deal by stabilizing visual identity keys
+- [x] Profile and cap animation cost for smooth frame pacing
 
 ## MU5 - Information Architecture & HUD
 
 Goal: make strategic info scannable at a glance.
 
-- [ ] Redesign top HUD into compact, glanceable blocks
-- [ ] Improve preview panel with clearer formula formatting
-- [ ] Add blind context panel (type, target, special rule)
-- [ ] Group controls by intent (play/discard/run/debug)
-- [ ] Add persistent run summary side panel (ante, blind, jokers, economy when added)
-- [ ] Add visual priority system for urgent states (low hands, near bust)
+- [x] Redesign top HUD into compact, glanceable blocks
+- [x] Improve preview panel with clearer formula formatting
+- [x] Add blind context panel (type, target, special rule)
+- [x] Group controls by intent (play/discard/run/debug)
+- [x] Add persistent run summary side panel (ante, blind, jokers, economy when added)
+- [x] Add visual priority system for urgent states (low hands, near bust)
 
 ## MU6 - Run End & Meta UX
 
@@ -161,7 +161,18 @@ Goal: keep UI quality measurable, not subjective.
 - [ ] Add accessibility checks (contrast + keyboard-only flow)
 - [ ] Run periodic polish passes tied to milestone exits
 
-## Next Priority Slice
+## Next Priority Slice (Current)
 
-1. Finish M1 with a balance pass for blind multipliers and hand/discard counts.
-2. Begin M2 with minimal economy (`money + payouts + single reroll shop`).
+1. Roadmap cleanup pass: mark `M1` complete, replace stale next-priority notes with `MU2 -> MU3 -> M3`.
+2. `MU2` sprint: finalize hover/selection states, contextual joker/control tooltips, invalid-action feedback consistency, shortcut hint polish.
+3. `MU3` sprint: add score breakdown strip (`base -> jokers -> total`) and clearer event messaging banners.
+4. `MT-UX` baseline: screenshot baselines for key states and a lightweight UX acceptance checklist.
+5. `M3` scaffolding: implement joker trigger categories first (content pipeline), then blind modifiers, then unlock persistence.
+
+### Acceptance Criteria for This Slice
+
+- [ ] Roadmap and board status are aligned (`M1/M2` complete, `MU2` active).
+- [ ] `MU2` deliverables are testable in one run without debug tools.
+- [ ] `MU3` score/explanation UI is visible after every play action.
+- [ ] Screenshot baselines exist for hand, blind clear, shop, game over.
+- [ ] `M3` content pipeline supports adding new joker trigger categories without touching core scoring flow.

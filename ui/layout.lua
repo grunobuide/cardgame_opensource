@@ -13,16 +13,17 @@ function Layout.columns(width, height)
   local outer = Layout.outer
   local gap = Layout.gap
   local pad = Layout.padding
-  local top_h = height <= 720 and 72 or 80
+  local top_h = 72
 
   local content_x = outer
   local content_y = outer + top_h + gap
   local content_w = width - (outer * 2)
   local content_h = height - content_y - outer
 
-  local feedback_h = height <= 720 and 64 or 72
-  local hand_h = snap(content_h * 0.59)
-  hand_h = math.max(320, math.min(hand_h, content_h - (feedback_h + (gap * 2) + 120)))
+  local feedback_h = height <= 720 and 80 or 88
+  local min_bottom_h = height <= 720 and 144 or 152
+  local hand_h = snap(content_h * 0.58)
+  hand_h = math.max(304, math.min(hand_h, content_h - (feedback_h + (gap * 2) + min_bottom_h)))
   local bottom_h = content_h - feedback_h - hand_h - (gap * 2)
 
   local actions_w = snap(content_w * 0.68)
@@ -50,11 +51,24 @@ function Layout.columns(width, height)
     h = bottom_h,
   }
 
-  local jokers = {
+  local side = {
     x = actions.x + actions.w + gap,
     y = actions.y,
     w = jokers_w,
     h = bottom_h,
+  }
+  local side_summary_h = math.max(64, math.min(96, math.floor(side.h * 0.48)))
+  side.summary = {
+    x = side.x,
+    y = side.y,
+    w = side.w,
+    h = side_summary_h,
+  }
+  side.jokers = {
+    x = side.x,
+    y = side.y + side_summary_h + 8,
+    w = side.w,
+    h = side.h - side_summary_h - 8,
   }
 
   return {
@@ -65,7 +79,9 @@ function Layout.columns(width, height)
     feedback = feedback,
     hand = hand,
     actions = actions,
-    jokers = jokers,
+    side = side,
+    run_summary = side.summary,
+    jokers = side.jokers,
     center = {
       feedback = feedback,
       hand = hand,
@@ -92,9 +108,9 @@ function Layout.position_buttons(buttons, width, height)
   local pad = Layout.padding
   local gap = Layout.gap
 
-  local top_y = panel.y + pad
-  local top_h = math.min(80, panel.h - (pad * 2) - 44)
-  top_h = math.max(64, top_h)
+  local top_y = panel.y + pad + 8
+  local top_h = math.min(64, panel.h - (pad * 2) - 28)
+  top_h = math.max(48, top_h)
   local top_w = math.floor((panel.w - (pad * 2) - gap) * 0.5)
 
   local play_rect = {
@@ -110,9 +126,9 @@ function Layout.position_buttons(buttons, width, height)
     h = top_h,
   }
 
-  local tool_y = top_y + top_h + 12
+  local tool_y = top_y + top_h + 8
   local tool_h = panel.y + panel.h - pad - tool_y
-  tool_h = math.max(34, tool_h)
+  tool_h = math.max(24, tool_h)
   local tool_order = { "new_run", "sort_suit", "sort_rank", "add_joker", "royal" }
   local tool_gap = 8
   local tool_w = math.floor((panel.w - (pad * 2) - (tool_gap * (#tool_order - 1))) / #tool_order)
@@ -146,36 +162,46 @@ function Layout.card_slots(hand_count, hand_region)
   end
 
   local bounds = hand_region or { x = 24, y = 208, w = 1318, h = 368 }
-  local available_w = bounds.w - 32
-  local card_h = math.max(200, math.min(bounds.h - 32, 320))
+  local available_w = bounds.w - 40
+  local card_h = math.max(196, math.min(bounds.h - 36, 332))
   local card_w = math.floor(card_h * 0.71)
+  local step = 0
 
-  while hand_count > 1 and card_h > 184 do
+  while hand_count > 1 and card_h > 176 do
     local trial_w = math.floor(card_h * 0.71)
-    local trial_overlap = math.floor((available_w - trial_w) / (hand_count - 1))
-    if trial_overlap >= math.floor(trial_w * 0.18) then
+    local max_step = math.floor((available_w - trial_w) / (hand_count - 1))
+    local desired_ratio = hand_count <= 4 and 0.72 or (hand_count <= 6 and 0.58 or 0.46)
+    local desired_step = math.floor(trial_w * desired_ratio)
+    local min_step = math.floor(trial_w * 0.20)
+
+    if max_step >= min_step then
       card_w = trial_w
+      step = math.max(min_step, math.min(max_step, desired_step))
       break
     end
     card_h = card_h - 8
   end
 
-  local overlap = 0
-  if hand_count > 1 then
-    overlap = math.floor((available_w - card_w) / (hand_count - 1))
-    overlap = math.max(math.floor(card_w * 0.18), math.min(overlap, math.floor(card_w * 0.52)))
+  if hand_count == 1 then
+    step = 0
+  elseif step == 0 then
+    step = math.max(
+      math.floor(card_w * 0.20),
+      math.floor((available_w - card_w) / (hand_count - 1))
+    )
   end
 
-  local total_w = card_w + ((hand_count - 1) * overlap)
+  local total_w = card_w + ((hand_count - 1) * step)
   local base_x = math.floor(bounds.x + ((bounds.w - total_w) * 0.5))
-  local base_y = bounds.y + bounds.h - card_h - 12
+  local base_y = bounds.y + bounds.h - card_h - 14
   local midpoint = (hand_count + 1) * 0.5
+  local curve_strength = hand_count <= 4 and 3.2 or (hand_count <= 6 and 2.4 or 1.6)
 
   for i = 1, hand_count do
     local arc = math.abs(i - midpoint)
     slots[i] = {
-      x = base_x + ((i - 1) * overlap),
-      y = base_y + (arc * 2),
+      x = base_x + ((i - 1) * step),
+      y = math.floor(base_y + ((arc * arc) * curve_strength)),
       w = card_w,
       h = card_h,
     }
