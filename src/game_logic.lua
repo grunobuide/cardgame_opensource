@@ -1067,6 +1067,151 @@ M.register_joker("PAIR_JOKER", {
   end,
 })
 
+-- Suit triggers
+M.register_joker("HEART_JOKER", {
+  name = "Heart Joker",
+  rarity = "common",
+  formula = "+3 Mult per Heart in played hand",
+  image = "Joker.png",
+  apply = function(cards, _hand_type)
+    local count = 0
+    for _, card in ipairs(cards) do
+      if to_suit_code(card.suit) == "H" then
+        count = count + 1
+      end
+    end
+    return { mult = count * 3 }
+  end,
+})
+
+M.register_joker("CLUB_JOKER", {
+  name = "Club Joker",
+  rarity = "common",
+  formula = "+10 Chips per Club in played hand",
+  image = "Joker.png",
+  apply = function(cards, _hand_type)
+    local count = 0
+    for _, card in ipairs(cards) do
+      if to_suit_code(card.suit) == "C" then
+        count = count + 1
+      end
+    end
+    return { chips = count * 10 }
+  end,
+})
+
+-- Rank triggers
+M.register_joker("ACE_JOKER", {
+  name = "Ace Joker",
+  rarity = "uncommon",
+  formula = "+6 Mult per Ace in played hand",
+  image = "Joker2.png",
+  apply = function(cards, _hand_type)
+    local count = 0
+    for _, card in ipairs(cards) do
+      if M.rank_to_value(card.rank) == 14 then
+        count = count + 1
+      end
+    end
+    return { mult = count * 6 }
+  end,
+})
+
+M.register_joker("FACE_JOKER", {
+  name = "Face Joker",
+  rarity = "common",
+  formula = "+4 Chips per Jack, Queen, or King in played hand",
+  image = "Joker.png",
+  apply = function(cards, _hand_type)
+    local count = 0
+    for _, card in ipairs(cards) do
+      local v = M.rank_to_value(card.rank)
+      if v >= 11 and v <= 13 then
+        count = count + 1
+      end
+    end
+    return { chips = count * 4 }
+  end,
+})
+
+-- Hand-type triggers
+M.register_joker("FLUSH_MASTER", {
+  name = "Flush Master",
+  rarity = "rare",
+  formula = "+30 Mult if hand is Flush or better",
+  image = "Joker2.png",
+  apply = function(_cards, hand_type)
+    local flush_ids = {
+      FLUSH = true, FULL_HOUSE = true, FOUR_KIND = true,
+      STRAIGHT_FLUSH = true, ROYAL_FLUSH = true,
+    }
+    if flush_ids[hand_type.id] then
+      return { mult = 30 }
+    end
+    return {}
+  end,
+})
+
+M.register_joker("STRAIGHT_ARROW", {
+  name = "Straight Arrow",
+  rarity = "uncommon",
+  formula = "+20 Mult if hand is a Straight or Straight Flush",
+  image = "Joker2.png",
+  apply = function(_cards, hand_type)
+    if hand_type.id == "STRAIGHT" or hand_type.id == "STRAIGHT_FLUSH" then
+      return { mult = 20 }
+    end
+    return {}
+  end,
+})
+
+-- Count triggers
+M.register_joker("STREET_RAT", {
+  name = "Street Rat",
+  rarity = "common",
+  formula = "+2 Mult per card played",
+  image = "Joker.png",
+  apply = function(cards, _hand_type)
+    return { mult = #cards * 2 }
+  end,
+})
+
+M.register_joker("MINIMALIST", {
+  name = "Minimalist",
+  rarity = "rare",
+  formula = "+20 Mult if exactly 1 card is played",
+  image = "Joker2.png",
+  apply = function(cards, _hand_type)
+    if #cards == 1 then
+      return { mult = 20 }
+    end
+    return {}
+  end,
+})
+
+-- State-aware triggers
+M.register_joker("HOARDER", {
+  name = "Hoarder",
+  rarity = "uncommon",
+  formula = "+2 Mult per Joker owned",
+  image = "Joker2.png",
+  apply = function(_cards, _hand_type, state)
+    local count = state and #state.jokers or 0
+    return { mult = count * 2 }
+  end,
+})
+
+M.register_joker("CONSERVATIVE", {
+  name = "Conservative",
+  rarity = "common",
+  formula = "+2 Mult per discard remaining this blind",
+  image = "Joker.png",
+  apply = function(_cards, _hand_type, state)
+    local remaining = state and state.discards or 0
+    return { mult = remaining * 2 }
+  end,
+})
+
 function M.new_state(rng, opts)
   opts = opts or {}
   local state = {
@@ -1169,7 +1314,7 @@ function M.calculate_projection(state, cards)
   for _, joker_key in ipairs(state.jokers) do
     local joker = M.JOKERS[joker_key]
     if joker then
-      local effect = joker.apply(cards, hand_type) or {}
+      local effect = joker.apply(cards, hand_type, state) or {}
       if effect.chips then
         current_chips = current_chips + effect.chips
       end

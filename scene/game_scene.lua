@@ -214,6 +214,8 @@ function GameScene:init_run_stats()
     total_plays = 0,
     total_discards = 0,
     blind_clears = 0,
+    joker_contributions = {},
+    best_play = nil,
     rounds = {},
     current_round = {
       ante = self.state.ante,
@@ -262,12 +264,29 @@ function GameScene:record_play(selected_count, result)
     round = self.run_stats.current_round
   end
 
-  local gained = (result and result.projection and result.projection.total) or 0
+  local projection = result and result.projection
+  local gained = (projection and projection.total) or 0
   self.run_stats.total_score = self.run_stats.total_score + gained
   self.run_stats.total_plays = self.run_stats.total_plays + 1
   round.score_gained = round.score_gained + gained
   round.plays = round.plays + 1
   round.last_selected = selected_count
+
+  if projection then
+    for _, detail in ipairs(projection.joker_details or {}) do
+      local key = detail.joker_key
+      local mult = (detail.effect and detail.effect.mult) or 0
+      local chips = (detail.effect and detail.effect.chips) or 0
+      self.run_stats.joker_contributions[key] = (self.run_stats.joker_contributions[key] or 0) + mult + chips
+    end
+    local best = self.run_stats.best_play
+    if not best or gained > best.score then
+      self.run_stats.best_play = {
+        score = gained,
+        hand_type = projection.hand_type and projection.hand_type.label or "Unknown",
+      }
+    end
+  end
 
   if result and (result.event == "next_blind" or result.event == "next_ante" or result.event == "run_won") then
     self.run_stats.blind_clears = self.run_stats.blind_clears + 1
@@ -309,6 +328,24 @@ function GameScene:build_run_result()
     end
   end
 
+  -- Find MVP joker (highest total contribution)
+  local mvp_joker_key, mvp_joker_score = nil, 0
+  if self.run_stats and self.run_stats.joker_contributions then
+    for key, total in pairs(self.run_stats.joker_contributions) do
+      if total > mvp_joker_score then
+        mvp_joker_key = key
+        mvp_joker_score = total
+      end
+    end
+  end
+  local mvp_joker_name = nil
+  if mvp_joker_key then
+    local joker_def = game.JOKERS[mvp_joker_key]
+    mvp_joker_name = joker_def and joker_def.name or mvp_joker_key
+  end
+
+  local best_play = self.run_stats and self.run_stats.best_play or nil
+
   self.run_result = {
     won = self.state.run_won == true,
     ante_reached = self.state.ante,
@@ -317,6 +354,10 @@ function GameScene:build_run_result()
     total_plays = self.run_stats and self.run_stats.total_plays or 0,
     total_discards = self.run_stats and self.run_stats.total_discards or 0,
     blind_clears = self.run_stats and self.run_stats.blind_clears or 0,
+    seed = self.current_seed or "",
+    mvp_joker = mvp_joker_name,
+    mvp_joker_score = mvp_joker_score,
+    best_play = best_play,
     rounds = rounds,
   }
 end

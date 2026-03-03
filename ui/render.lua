@@ -1050,17 +1050,45 @@ local function draw_run_result(ctx)
 
   love.graphics.setFont(ctx.fonts.ui)
   love.graphics.setColor(ctx.palette.text[1], ctx.palette.text[2], ctx.palette.text[3], overlay_alpha)
-  love.graphics.print(("Ante reached: %d"):format(result.ante_reached), x + 24, y + 90)
-  love.graphics.print(("Final blind: %s"):format(result.blind_reached), x + 24, y + 124)
-  love.graphics.print(("Total score: %d"):format(result.total_score), x + 24, y + 158)
+  love.graphics.print(("Ante reached: %d"):format(result.ante_reached), x + 24, y + 70)
+  love.graphics.print(("Final blind: %s"):format(result.blind_reached), x + 24, y + 96)
+  love.graphics.print(("Total score: %d"):format(result.total_score), x + 24, y + 122)
+
   love.graphics.setFont(ctx.fonts.small)
-  love.graphics.print(("Plays: %d  Discards: %d  Clears: %d"):format(result.total_plays, result.total_discards, result.blind_clears), x + 24, y + 196)
+  love.graphics.print(("Plays: %d  Discards: %d  Clears: %d"):format(result.total_plays, result.total_discards, result.blind_clears), x + 24, y + 152)
+
+  -- Highlights: MVP joker + best hand
+  local highlight_y = y + 178
+  if result.mvp_joker then
+    love.graphics.setColor(ctx.palette.ok[1], ctx.palette.ok[2], ctx.palette.ok[3], overlay_alpha)
+    love.graphics.setFont(ctx.fonts.small)
+    love.graphics.print(("MVP Joker: %s (+%d)"):format(result.mvp_joker, result.mvp_joker_score or 0), x + 24, highlight_y)
+    highlight_y = highlight_y + 22
+  end
+  if result.best_play then
+    love.graphics.setColor(ctx.palette.ok[1], ctx.palette.ok[2], ctx.palette.ok[3], overlay_alpha)
+    love.graphics.setFont(ctx.fonts.small)
+    love.graphics.print(("Best hand: %s (%d pts)"):format(result.best_play.hand_type, result.best_play.score), x + 24, highlight_y)
+    highlight_y = highlight_y + 22
+  end
+
+  -- Seed
+  love.graphics.setColor(ctx.palette.muted[1], ctx.palette.muted[2], ctx.palette.muted[3], overlay_alpha)
+  love.graphics.setFont(ctx.fonts.small)
+  local seed_text = result.seed and result.seed ~= "" and result.seed or "n/a"
+  love.graphics.print(("Seed: %s"):format(seed_text), x + 24, highlight_y)
+  highlight_y = highlight_y + 28
+
+  -- Separator
+  love.graphics.setColor(ctx.palette.muted[1], ctx.palette.muted[2], ctx.palette.muted[3], 0.3 * overlay_alpha)
+  love.graphics.rectangle("fill", x + 24, highlight_y, panel_w - 48, 1)
+  highlight_y = highlight_y + 8
 
   love.graphics.setColor(ctx.palette.muted[1], ctx.palette.muted[2], ctx.palette.muted[3], overlay_alpha)
   love.graphics.setFont(ctx.fonts.small)
-  love.graphics.print("Per-round stats", x + 24, y + 236)
+  love.graphics.print("Per-round stats", x + 24, highlight_y)
 
-  local row_y = y + 262
+  local row_y = highlight_y + 22
   local max_rows = 10
   local start_i = math.max(1, #result.rounds - max_rows + 1)
   for i = start_i, #result.rounds do

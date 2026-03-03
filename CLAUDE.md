@@ -40,7 +40,7 @@ config/               # Centralized tunables and config loader
   tunables.lua        # All game constants (ante, hand size, pricing, etc.)
   init.lua            # Config loader with deep merge support
 src/                  # Core game logic (side-effect free, fully testable)
-  game_logic.lua      # Hand detection, scoring engine, joker registry (1457 lines)
+  game_logic.lua      # Hand detection, scoring engine, joker registry (~1600 lines)
   save_load.lua       # Run snapshot persistence, schema versioning v1
   event_bus.lua       # Lightweight pub-sub for component decoupling
 scene/                # Runtime orchestration
@@ -49,9 +49,12 @@ scene/                # Runtime orchestration
   actions.lua         # Play, discard, shop action handlers
   card_visuals.lua    # Card rendering + animation state
 ui/                   # All rendering
-  render.lua          # Complete UI rendering pipeline (1264 lines)
+  render.lua          # Complete UI rendering pipeline (~1260 lines)
   layout.lua          # Responsive 3-column layout engine
   pixel_kit.lua       # Reusable pixel-art UI components
+  palette.lua         # Color palette definitions (theme tokens)
+  typography.lua      # Font loading and text style scale
+  ui_state.lua        # Shared UI state (hover, debug overlay, etc.)
 anim/
   tween_queue.lua     # Tweening with easing presets + frame budget
 spec/                 # Test suite
@@ -70,10 +73,20 @@ Every file returns a plain Lua table (module). Use `require()` with dot-separate
 - **Pure game logic:** `src/game_logic.lua` has no I/O or side effects — safe to `require` in tests without LÖVE.
 - **Scene state machine:** `GameScene` owns all subsystems; coordinates via event bus.
 - **Event bus:** Pub-sub (`event_bus.lua`) decouples rendering from logic. Prefer events over direct calls across module boundaries.
-- **Joker registry:** `register_joker(def)` in `game_logic.lua` — add new jokers here.
+- **Joker registry:** `register_joker(key, definition)` in `game_logic.lua` — add new jokers here. The `apply(cards, hand_type, state)` callback receives played cards, the evaluated hand type, and the full game state. State-aware jokers (e.g. Hoarder, Conservative) use the 3rd arg; others can ignore it.
 - **Tweening:** All animations go through `tween_queue.lua`. Respects reduced-motion toggle.
 - **Visual identity keys:** Cards carry a stable `visual_id` separate from hand position to prevent animation flicker on reorder.
 - **Seeded RNG:** Custom LCG seeded RNG (`game_logic.lua`) for deterministic tests and replay.
+
+### Joker Trigger Categories (13 jokers)
+| Category | Jokers | What they read |
+|----------|--------|---------------|
+| Unconditional | Joker | Nothing — always fires |
+| Suit | Greedy Joker, Heart Joker, Club Joker | `card.suit` |
+| Rank | Ace Joker, Face Joker | `card.rank` via `rank_to_value()` |
+| Hand type | Flush Master, Straight Arrow | `hand_type.id` |
+| Card count | Street Rat, Minimalist, Pair Joker | `#cards` or rank frequency |
+| State-aware | Hoarder, Conservative | `state.jokers`, `state.discards` |
 
 ### OOP Style
 Classes use `__index` metatables:
@@ -114,7 +127,7 @@ Completed: M1 (run loop), M2 (shop/economy), MA (architecture), MU1–MU5 (visua
 
 Active/planned: M3 (content expansion — jokers, consumables, blind variants, unlocks), MU6 (run-end UX, settings, onboarding, run history), MT-UX (screenshot baselines, accessibility).
 
-See `ROADMAP.md` for full milestone breakdown.
+See `ROADMAP.md` for the original milestone breakdown and `ROADMAP_PHASE2.md` for the active sprint (joker expansion, run-end UX, consumables pipeline).
 
 ## Debugging
 
