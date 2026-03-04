@@ -1,5 +1,6 @@
 local Layout = require("ui.layout")
 local PixelKit = require("ui.pixel_kit")
+local Assets = require("ui.asset_loader")
 
 local Render = {}
 local icon_quads_cache = {}
@@ -166,15 +167,28 @@ local function draw_metric_block(ctx, x, y, w, h, title, value, opts)
   local fill = opts.fill or { 0.08, 0.06, 0.16, 1.0 }
 
   PixelKit.draw_panel(x, y, w, h, {
+    asset = "stat_block",
     fill = fill,
     border = border,
     border_width = 2,
     shadow = 2,
   })
 
+  -- Draw stat icon if available (left-aligned before title)
+  local icon_name = opts.icon
+  local text_x = x + 8
+  if icon_name then
+    local icon_img = Assets.icon(icon_name)
+    if icon_img then
+      love.graphics.setColor(1, 1, 1, 1)
+      love.graphics.draw(icon_img, x + 6, y + 4)
+      text_x = x + 24
+    end
+  end
+
   love.graphics.setColor(opts.title_color or palette.muted)
   love.graphics.setFont(fonts.small)
-  love.graphics.print(tostring(title or ""), x + 8, y + 4)
+  love.graphics.print(tostring(title or ""), text_x, y + 4)
 
   love.graphics.setColor(opts.value_color or palette.text)
   love.graphics.setFont(opts.value_font or fonts.ui)
@@ -243,6 +257,7 @@ local function draw_tooltip(ctx, tooltip)
   local y = math.max(8, math.min(my, max_y))
 
   PixelKit.draw_panel(x, y, width, height, {
+    asset = "panel_tooltip",
     fill = { 0.07, 0.05, 0.15, 0.98 },
     border = palette.accent_alt,
     border_width = 2,
@@ -333,6 +348,18 @@ local function draw_background(ctx)
   local palette = ctx.palette
   local w, h = love.graphics.getWidth(), love.graphics.getHeight()
 
+  -- Try tileable background image
+  local bg_key = Assets.bg_key_for_state(ctx.state)
+  local bg_img = Assets.image(bg_key) or Assets.image("bg_felt")
+  if bg_img then
+    bg_img:setWrap("repeat", "repeat")
+    local quad = love.graphics.newQuad(0, 0, w, h, bg_img:getWidth(), bg_img:getHeight())
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.draw(bg_img, quad, 0, 0)
+    return
+  end
+
+  -- Fallback: procedural gradient + grid
   love.graphics.setColor(palette.bg_bottom or palette.bg)
   love.graphics.rectangle("fill", 0, 0, w, h)
 
@@ -364,10 +391,12 @@ local function draw_header(ctx, header, panel_alpha)
   local urgent = urgency_state(ctx, ctx.projection)
 
   PixelKit.draw_panel(header.x, header.y, header.w, header.h, {
+    asset = "panel_primary",
     fill = with_alpha(palette.panel, panel_alpha or 1),
     border = with_alpha(palette.border, panel_alpha or 1),
     border_width = 2,
     shadow = 4,
+    alpha = panel_alpha or 1,
   })
 
   local logo = ctx.get_image("assets/game_logo.png")
@@ -386,21 +415,23 @@ local function draw_header(ctx, header, panel_alpha)
   love.graphics.print(("A%d  %s"):format(state.ante or 1, blind.label or "Blind"), left, header.y + 40)
 
   local metrics = {
-    { title = "TARGET", value = short_number(game.current_target(state)), border = palette.border, value_color = palette.text },
-    { title = "SCORE", value = short_number(state.score), border = palette.accent_alt, value_color = palette.text },
+    { title = "TARGET", value = short_number(game.current_target(state)), border = palette.border, value_color = palette.text, icon = "target" },
+    { title = "SCORE", value = short_number(state.score), border = palette.accent_alt, value_color = palette.text, icon = "score" },
     {
       title = "HANDS",
       value = tostring(state.hands or 0),
       border = urgent.low_hands and palette.warn or palette.ok,
       value_color = urgent.low_hands and palette.warn or palette.text,
+      icon = "hand",
     },
     {
       title = "DISCARDS",
       value = tostring(state.discards or 0),
       border = urgent.low_discards and palette.warn or palette.border,
       value_color = urgent.low_discards and palette.warn or palette.text,
+      icon = "discard",
     },
-    { title = "CREDITS", value = ("$%d"):format(state.money or 0), border = palette.ok, value_color = palette.text },
+    { title = "CREDITS", value = ("$%d"):format(state.money or 0), border = palette.ok, value_color = palette.text, icon = "coin" },
   }
 
   local gap = 8
@@ -418,6 +449,7 @@ local function draw_header(ctx, header, panel_alpha)
       value_color = with_alpha(metric.value_color, panel_alpha or 1),
       title_color = with_alpha(palette.muted, panel_alpha or 1),
       fill = { 0.07, 0.05, 0.15, 1.0 },
+      icon = metric.icon,
     })
   end
 end
@@ -437,10 +469,12 @@ local function draw_feedback(ctx, area, panel_alpha)
   local outer_border = urgent.near_bust and palette.warn or palette.border
 
   PixelKit.draw_panel(area.x, area.y, area.w, area.h, {
+    asset = "panel_secondary",
     fill = with_alpha(palette.panel_alt, panel_alpha or 1),
     border = with_alpha(outer_border, panel_alpha or 1),
     border_width = 2,
     shadow = 4,
+    alpha = panel_alpha or 1,
     title = "FEEDBACK",
     fonts = fonts,
     title_font = fonts.small,
@@ -623,15 +657,19 @@ local function draw_hand(ctx, area, panel_alpha)
   local my = ctx.mouse_y or -9999
 
   PixelKit.draw_panel(area.x, area.y, area.w, area.h, {
+    asset = "panel_primary",
     fill = with_alpha(palette.panel, panel_alpha or 1),
     border = with_alpha(palette.border, panel_alpha or 1),
     border_width = 2,
     shadow = 4,
+    alpha = panel_alpha or 1,
     title = "HAND",
     fonts = fonts,
     title_font = fonts.small,
   })
 
+  local select_glow = Assets.image("card_select_glow")
+  local hover_glow = Assets.image("card_hover_glow")
   local hover_tooltip = nil
   for _, visual in ipairs(ctx.card_visuals) do
     local draw_x = visual.x
@@ -649,6 +687,19 @@ local function draw_hand(ctx, area, panel_alpha)
       border = palette.accent
     elseif hovered then
       border = palette.accent_alt
+    end
+
+    -- Draw glow behind card if art available, else procedural border
+    if selected and select_glow then
+      local gw = visual.w + 20
+      local gh = visual.h + 20
+      love.graphics.setColor(1, 1, 1, 0.9 * visual.alpha)
+      love.graphics.draw(select_glow, draw_x - 10, draw_y - 10, 0, gw / select_glow:getWidth(), gh / select_glow:getHeight())
+    elseif hovered and not selected and hover_glow then
+      local gw = visual.w + 16
+      local gh = visual.h + 16
+      love.graphics.setColor(1, 1, 1, 0.7 * visual.alpha)
+      love.graphics.draw(hover_glow, draw_x - 8, draw_y - 8, 0, gw / hover_glow:getWidth(), gh / hover_glow:getHeight())
     end
 
     PixelKit.draw_panel(draw_x - 2, draw_y - 2, visual.w + 4, visual.h + 4, {
@@ -672,13 +723,18 @@ local function draw_hand(ctx, area, panel_alpha)
     end
 
     if selected then
-      PixelKit.outline(draw_x - 1, draw_y - 1, visual.w + 2, visual.h + 2, { palette.accent[1], palette.accent[2], palette.accent[3], 0.90 }, 1)
-      PixelKit.outline(draw_x + 2, draw_y + 2, visual.w - 4, visual.h - 4, { palette.accent_alt[1], palette.accent_alt[2], palette.accent_alt[3], 0.75 }, 1)
+      if not select_glow then
+        -- Fallback: procedural selection outline
+        PixelKit.outline(draw_x - 1, draw_y - 1, visual.w + 2, visual.h + 2, { palette.accent[1], palette.accent[2], palette.accent[3], 0.90 }, 1)
+        PixelKit.outline(draw_x + 2, draw_y + 2, visual.w - 4, visual.h - 4, { palette.accent_alt[1], palette.accent_alt[2], palette.accent_alt[3], 0.75 }, 1)
+      end
       love.graphics.setColor(palette.accent)
       love.graphics.setFont(fonts.small)
       love.graphics.print("SEL", draw_x + 8, draw_y + 6)
     elseif hovered then
-      PixelKit.outline(draw_x - 1, draw_y - 1, visual.w + 2, visual.h + 2, { palette.accent_alt[1], palette.accent_alt[2], palette.accent_alt[3], 0.80 }, 1)
+      if not hover_glow then
+        PixelKit.outline(draw_x - 1, draw_y - 1, visual.w + 2, visual.h + 2, { palette.accent_alt[1], palette.accent_alt[2], palette.accent_alt[3], 0.80 }, 1)
+      end
     end
 
     if hovered then
@@ -729,10 +785,12 @@ local function draw_actions(ctx, area, panel_alpha)
   end
 
   PixelKit.draw_panel(area.x, area.y, area.w, area.h, {
+    asset = "panel_secondary",
     fill = with_alpha(palette.panel_alt, panel_alpha or 1),
     border = with_alpha(palette.border, panel_alpha or 1),
     border_width = 2,
     shadow = 4,
+    alpha = panel_alpha or 1,
     title = "ACTIONS",
     fonts = fonts,
     title_font = fonts.small,
@@ -751,6 +809,7 @@ local function draw_actions(ctx, area, panel_alpha)
         fonts = fonts,
         palette = palette,
         key_hint = button.key_hint,
+        tier = button.tier,
         neon_color = button.id == "play" and palette.accent or palette.accent_alt,
         states = button.tier == "primary" and {
           normal = { fill = { 0.78, 0.22, 0.68, 1.0 }, border = palette.accent, text = { 0.09, 0.03, 0.14, 1.0 } },
@@ -796,6 +855,7 @@ local function draw_actions(ctx, area, panel_alpha)
         fonts = fonts,
         palette = palette,
         key_hint = button.key_hint,
+        tier = button.tier or "utility",
         neon_color = button.id == "new_run" and palette.accent or palette.accent_alt,
         states = button.id == "new_run" and {
           normal = { fill = { 0.22, 0.11, 0.24, 1.0 }, border = palette.accent, text = palette.text },
@@ -856,10 +916,12 @@ local function draw_run_summary(ctx, area, panel_alpha)
   local border = urgent.near_bust and palette.warn or palette.border
 
   PixelKit.draw_panel(area.x, area.y, area.w, area.h, {
+    asset = "panel_inset",
     fill = with_alpha(palette.panel, panel_alpha or 1),
     border = with_alpha(border, panel_alpha or 1),
     border_width = 2,
     shadow = 4,
+    alpha = panel_alpha or 1,
     title = "RUN SUMMARY",
     fonts = fonts,
     title_font = fonts.small,
@@ -920,10 +982,12 @@ local function draw_joker_dock(ctx, area, panel_alpha)
   local hover_tooltip = nil
 
   PixelKit.draw_panel(area.x, area.y, area.w, area.h, {
+    asset = "panel_primary",
     fill = with_alpha(ctx.palette.panel, panel_alpha or 1),
     border = with_alpha(palette.border, panel_alpha or 1),
     border_width = 2,
     shadow = 4,
+    alpha = panel_alpha or 1,
     title = "JOKER DOCK",
     fonts = fonts,
     title_font = fonts.small,
@@ -938,7 +1002,16 @@ local function draw_joker_dock(ctx, area, panel_alpha)
     local draw_y = hovered and (y - 3) or y
     local border = joker and (hovered and palette.accent or palette.border) or { palette.border[1], palette.border[2], palette.border[3], 0.45 }
 
+    -- Determine joker frame asset by rarity
+    local frame_asset = nil
+    if joker then
+      frame_asset = Assets.joker_frame_key(joker.rarity or "common")
+    else
+      frame_asset = "joker_slot_empty"
+    end
+
     PixelKit.draw_panel(x, draw_y, slot_w, slot_h, {
+      asset = frame_asset,
       fill = { 0.06, 0.05, 0.14, 1.0 },
       border = border,
       border_width = 2,
@@ -1001,10 +1074,12 @@ local function draw_seed_prompt(ctx)
   local y = math.floor((h - panel_h) * 0.5)
 
   PixelKit.draw_panel(x, y, panel_w, panel_h, {
+    asset = "panel_highlight",
     fill = with_alpha(palette.panel_alt, overlay_alpha),
     border = with_alpha(palette.accent, overlay_alpha),
     border_width = 2,
     shadow = 4,
+    alpha = overlay_alpha,
     title = "SEED ENTRY",
     fonts = fonts,
     title_font = fonts.small,
@@ -1037,16 +1112,29 @@ local function draw_run_result(ctx)
   local y = math.floor((h - panel_h) * 0.5)
 
   PixelKit.draw_panel(x, y, panel_w, panel_h, {
+    asset = "panel_result",
     fill = with_alpha(ctx.palette.panel, overlay_alpha),
     border = with_alpha(ctx.palette.accent, overlay_alpha),
     border_width = 2,
     shadow = 4,
+    alpha = overlay_alpha,
   })
 
+  -- Try header art for victory/defeat
+  local header_key = result.won and "header_victory" or "header_defeat"
+  local header_img = Assets.image(header_key)
   love.graphics.setFont(ctx.fonts.title)
   local title_color = result.won and ctx.palette.ok or ctx.palette.accent
   love.graphics.setColor(title_color[1], title_color[2], title_color[3], overlay_alpha)
-  love.graphics.printf(result.won and "RUN COMPLETE" or "RUN OVER", x, y + 18, panel_w, "center")
+  if header_img then
+    local hsx = math.min((panel_w - 48) / header_img:getWidth(), 1)
+    local hsy = hsx
+    local hx = x + math.floor((panel_w - header_img:getWidth() * hsx) * 0.5)
+    love.graphics.setColor(1, 1, 1, overlay_alpha)
+    love.graphics.draw(header_img, hx, y + 12, 0, hsx, hsy)
+  else
+    love.graphics.printf(result.won and "RUN COMPLETE" or "RUN OVER", x, y + 18, panel_w, "center")
+  end
 
   love.graphics.setFont(ctx.fonts.ui)
   love.graphics.setColor(ctx.palette.text[1], ctx.palette.text[2], ctx.palette.text[3], overlay_alpha)
@@ -1180,10 +1268,12 @@ local function draw_shop_modal(ctx)
   local x = math.floor((w - panel_w) * 0.5)
   local y = math.floor((h - panel_h) * 0.5)
   PixelKit.draw_panel(x, y, panel_w, panel_h, {
+    asset = "panel_shop",
     fill = with_alpha(palette.panel, overlay_alpha),
     border = with_alpha(palette.accent_alt, overlay_alpha),
     border_width = 2,
     shadow = 4,
+    alpha = overlay_alpha,
   })
 
   love.graphics.setColor(palette.accent[1], palette.accent[2], palette.accent[3], overlay_alpha)
