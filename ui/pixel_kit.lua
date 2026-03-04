@@ -1,3 +1,5 @@
+local Assets = require("ui.asset_loader")
+
 local PixelKit = {}
 
 local function rgba(color, alpha_override)
@@ -45,6 +47,30 @@ end
 
 function PixelKit.draw_panel(x, y, w, h, opts)
   opts = opts or {}
+  local alpha = opts.alpha or (opts.fill and opts.fill[4]) or 1
+
+  -- Try image-backed 9-slice if an asset key is provided
+  if opts.asset then
+    local np = Assets.nine_patch(opts.asset)
+    if np then
+      local shadow = opts.shadow == nil and 4 or opts.shadow
+      if shadow > 0 then
+        love.graphics.setColor(0, 0, 0, 0.75 * alpha)
+        love.graphics.rectangle("fill", x + shadow, y + shadow, w, h)
+      end
+      np:draw(x, y, w, h, alpha)
+      if opts.title and opts.fonts then
+        local title_font = opts.title_font or opts.fonts.small or opts.fonts.ui
+        local title_color = opts.title_color or opts.border or { 0.0, 0.90, 1.0, 1.0 }
+        love.graphics.setColor(title_color[1], title_color[2], title_color[3], alpha)
+        love.graphics.setFont(title_font)
+        love.graphics.print(tostring(opts.title), x + (opts.title_padding or 12), y + 8)
+      end
+      return
+    end
+    -- asset not found: fall through to procedural drawing
+  end
+
   local border_width = opts.border_width or 2
   local shadow = opts.shadow == nil and 4 or opts.shadow
   local fill = opts.fill or { 0.12, 0.08, 0.22, 1.0 }
@@ -75,6 +101,51 @@ function PixelKit.draw_button(x, y, w, h, state, label, opts)
   local current_state = state or "normal"
   local fonts = opts.fonts or {}
   local palette = opts.palette or {}
+
+  -- Try image-backed button if a tier is specified
+  if opts.tier then
+    local asset_key = Assets.button_key(opts.tier, current_state)
+    local np = Assets.nine_patch(asset_key)
+    if np then
+      local shadow = opts.shadow == nil and 4 or opts.shadow
+      if shadow > 0 then
+        love.graphics.setColor(0, 0, 0, 0.75)
+        love.graphics.rectangle("fill", x + shadow, y + shadow, w, h)
+      end
+      np:draw(x, y, w, h)
+      -- draw label text on top
+      local visual_text = palette.text or { 0.96, 0.96, 1.0, 1.0 }
+      if current_state == "active" then
+        visual_text = opts.active_text or { 0.08, 0.03, 0.12, 1.0 }
+      elseif current_state == "disabled" then
+        visual_text = { 0.64, 0.64, 0.72, 1.0 }
+      end
+      local key_hint = opts.key_hint and tostring(opts.key_hint) or ""
+      local compact_font = fonts.small or fonts.ui or fonts.medium
+      local font = opts.font or ((h <= 30) and compact_font or (fonts.ui or fonts.medium or fonts.small))
+      local small = fonts.small or font
+      local text = tostring(label or "")
+      if key_hint ~= "" and h >= 28 then
+        love.graphics.setFont(small)
+        love.graphics.setColor(rgba(visual_text))
+        love.graphics.printf(key_hint, x + w - 48, y + math.floor((h - small:getHeight()) * 0.5), 40, "center")
+        text = clipped_label(font, text, w - 68)
+        love.graphics.setFont(font)
+        love.graphics.setColor(rgba(visual_text))
+        love.graphics.printf(text, x + 12, y + math.floor((h - font:getHeight()) * 0.5), w - 62, "left")
+      else
+        if key_hint ~= "" then
+          text = ("%s (%s)"):format(text, key_hint)
+        end
+        text = clipped_label(font, text, w - 20)
+        love.graphics.setFont(font)
+        love.graphics.setColor(rgba(visual_text))
+        love.graphics.printf(text, x + 10, y + math.floor((h - font:getHeight()) * 0.5), w - 20, "center")
+      end
+      return
+    end
+    -- asset not found: fall through to procedural
+  end
 
   local states = opts.states or {
     normal = {
@@ -160,6 +231,7 @@ function PixelKit.draw_progress_segmented(x, y, w, h, value, max_value, opts)
   local border = opts.border or { 0.0, 0.90, 1.0, 1.0 }
 
   PixelKit.draw_panel(x, y, w, h, {
+    asset = "bar_track",
     fill = track,
     border = border,
     border_width = 2,
@@ -267,6 +339,7 @@ function PixelKit.button(button, palette, fonts, opts)
     palette = palette,
     key_hint = button.key_hint,
     states = states,
+    tier = tier,
     neon_color = tier == "primary" and palette.accent or palette.accent_alt,
   })
 end
