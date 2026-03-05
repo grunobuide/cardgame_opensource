@@ -46,6 +46,27 @@ Tunables.shop = {
   sell_ratio = 0.5,
 }
 
+Tunables.ev = {
+  card_base_offset    = 8,     -- subtracted from rank value in score_ev_for_card
+  card_rank_weight    = 1.3,   -- multiplier for (value - offset)
+  ace_bonus           = 1.5,   -- extra EV for Aces
+  face_bonus          = 0.6,   -- extra EV for J/Q/K
+  rarity_bonus        = { common = 4, uncommon = 7, rare = 11 },
+  chip_weight         = 0.14,  -- formula chip contribution to joker EV
+  mult_weight         = 2.1,   -- formula mult contribution to joker EV
+  money_weight        = 1.1,   -- money_ev multiplier in normalize_ev
+  verdict_good        = 2,     -- combined EV threshold for "good"
+  verdict_risky       = -2,    -- combined EV threshold for "risky"
+  sell_joker_penalty  = 0.85,  -- score EV kept when selling a joker
+  sell_card_penalty   = 0.65,  -- score EV kept when selling a card
+  deck_remove_base    = 0.8,   -- base score EV for deck remove
+  deck_remove_over    = 0.15,  -- per-card-over-52 bonus for deck remove
+  deck_upgrade_ev     = 3.6,   -- fixed score EV for deck upgrade
+  deck_dup_base       = 1.2,   -- base score EV for deck duplicate
+  deck_dup_avg_weight = 0.45,  -- avg rank EV weight for deck duplicate
+  reroll_score_scale  = 1.2,   -- multiplier on avg offer EV for reroll
+}
+
 Tunables.inventory = {
   schema = 1,
 }
