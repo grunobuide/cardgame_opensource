@@ -22,6 +22,7 @@ local function apply_tunables(tunables)
   M.MAX_SELECT = run.max_select or 5
   M.MAX_JOKERS = run.max_jokers or 5
   M.INVENTORY_SCHEMA = ((tunables.inventory or {}).schema) or 1
+  M.EV = tunables.ev or {}
 end
 
 function M.load_tunables(overrides)
@@ -108,6 +109,9 @@ local function card_label(card)
 end
 
 local function card_offer_price(card)
+  if not card then
+    return M.SHOP.prices.card_base
+  end
   local value = M.rank_to_value(card.rank)
   local premium = 0
   if value >= 14 then
@@ -161,12 +165,13 @@ local function parse_formula_hint(formula)
 end
 
 local function score_ev_for_card(card)
+  local ev = M.EV
   local value = M.rank_to_value(card.rank)
-  local base = (value - 8) * 1.3
+  local base = (value - (ev.card_base_offset or 8)) * (ev.card_rank_weight or 1.3)
   if card.rank == "A" then
-    base = base + 1.5
+    base = base + (ev.ace_bonus or 1.5)
   elseif card.rank == "K" or card.rank == "Q" or card.rank == "J" then
-    base = base + 0.6
+    base = base + (ev.face_bonus or 0.6)
   end
   return base
 end
@@ -175,23 +180,21 @@ local function score_ev_for_joker(joker)
   if not joker then
     return 0
   end
-  local rarity_bonus = 4
-  if joker.rarity == "uncommon" then
-    rarity_bonus = 7
-  elseif joker.rarity == "rare" then
-    rarity_bonus = 11
-  end
+  local ev = M.EV
+  local rarity_bonuses = ev.rarity_bonus or { common = 4, uncommon = 7, rare = 11 }
+  local rarity_bonus = rarity_bonuses[joker.rarity] or rarity_bonuses.common or 4
   local chips, mult = parse_formula_hint(joker.formula)
-  local formula_bonus = (chips * 0.14) + (mult * 2.1)
+  local formula_bonus = (chips * (ev.chip_weight or 0.14)) + (mult * (ev.mult_weight or 2.1))
   return rarity_bonus + formula_bonus
 end
 
 local function normalize_ev(score_ev, money_ev)
-  local combined = score_ev + (money_ev * 1.1)
+  local ev = M.EV
+  local combined = score_ev + (money_ev * (ev.money_weight or 1.1))
   local verdict = "neutral"
-  if combined >= 2 then
+  if combined >= (ev.verdict_good or 2) then
     verdict = "good"
-  elseif combined <= -2 then
+  elseif combined <= (ev.verdict_risky or -2) then
     verdict = "risky"
   end
   return {
@@ -570,7 +573,7 @@ function M.shop_expected_value(state, subject)
     local joker_weight = clamp((M.SHOP.joker_offer_weight or 70) / 100, 0, 1)
     local card_weight = 1 - joker_weight
     local avg_offer_score = (average_joker_offer_ev() * joker_weight) + (average_card_offer_ev() * card_weight)
-    local score_ev = avg_offer_score * 1.2
+    local score_ev = avg_offer_score * (M.EV.reroll_score_scale or 1.2)
     local money_ev = -cost
     local out = normalize_ev(score_ev, money_ev)
     out.label = "Reroll"
@@ -584,7 +587,7 @@ function M.shop_expected_value(state, subject)
       return normalize_ev(0, 0)
     end
     local joker = M.JOKERS[joker_key]
-    local score_ev = -score_ev_for_joker(joker) * 0.85
+    local score_ev = -score_ev_for_joker(joker) * (M.EV.sell_joker_penalty or 0.85)
     local money_ev = joker_sell_price(joker_key)
     local out = normalize_ev(score_ev, money_ev)
     out.label = "Sell Joker"
@@ -597,7 +600,7 @@ function M.shop_expected_value(state, subject)
     if not card then
       return normalize_ev(0, 0)
     end
-    local score_ev = -score_ev_for_card(card) * 0.65
+    local score_ev = -score_ev_for_card(card) * (M.EV.sell_card_penalty or 0.65)
     local money_ev = card_sell_price(card)
     local out = normalize_ev(score_ev, money_ev)
     out.label = "Sell Card"
@@ -607,7 +610,7 @@ function M.shop_expected_value(state, subject)
   if action == "deck_remove" then
     local cost = (M.SHOP.deck_edit_costs and M.SHOP.deck_edit_costs.remove) or 3
     local over_base = math.max(0, #state.deck_cards - 52)
-    local score_ev = 0.8 + (over_base * 0.15)
+    local score_ev = (M.EV.deck_remove_base or 0.8) + (over_base * (M.EV.deck_remove_over or 0.15))
     local money_ev = -cost
     local out = normalize_ev(score_ev, money_ev)
     out.label = "Deck Remove"
@@ -616,7 +619,7 @@ function M.shop_expected_value(state, subject)
 
   if action == "deck_upgrade" then
     local cost = (M.SHOP.deck_edit_costs and M.SHOP.deck_edit_costs.upgrade) or 4
-    local score_ev = 3.6
+    local score_ev = M.EV.deck_upgrade_ev or 3.6
     local money_ev = -cost
     local out = normalize_ev(score_ev, money_ev)
     out.label = "Deck Upgrade"
@@ -626,7 +629,7 @@ function M.shop_expected_value(state, subject)
   if action == "deck_duplicate" then
     local cost = (M.SHOP.deck_edit_costs and M.SHOP.deck_edit_costs.duplicate) or 5
     local avg_rank_ev = average_card_offer_ev()
-    local score_ev = 1.2 + (avg_rank_ev * 0.45)
+    local score_ev = (M.EV.deck_dup_base or 1.2) + (avg_rank_ev * (M.EV.deck_dup_avg_weight or 0.45))
     local money_ev = -cost
     local out = normalize_ev(score_ev, money_ev)
     out.label = "Deck Duplicate"
@@ -661,7 +664,7 @@ function M.shop_buy_offer(state, index)
   end
 
   if offer.type == "joker" and #state.jokers >= M.MAX_JOKERS then
-    return { ok = false, reason = "max_jokers", message = "Max 5 Jokers!" }
+    return { ok = false, reason = "max_jokers", message = ("Max %d Jokers!"):format(M.MAX_JOKERS) }
   end
 
   inventory_spend(state, offer.price, "shop_buy", {
@@ -893,6 +896,9 @@ function M.rank_to_value(rank)
   if type(rank) == "number" then
     return rank
   end
+  if rank == "A" then
+    return 14
+  end
   if rank == "J" then
     return 11
   end
@@ -902,7 +908,7 @@ function M.rank_to_value(rank)
   if rank == "K" then
     return 13
   end
-  return 14
+  return 0
 end
 
 function M.evaluate_hand(cards)
@@ -1465,7 +1471,7 @@ end
 function M.add_joker(state, forced_key)
   M.ensure_run_inventory(state)
   if #state.jokers >= M.MAX_JOKERS then
-    return { ok = false, reason = "max_jokers", message = "Max 5 Jokers!" }
+    return { ok = false, reason = "max_jokers", message = ("Max %d Jokers!"):format(M.MAX_JOKERS) }
   end
 
   local key = forced_key
@@ -1520,7 +1526,7 @@ function M.new_run(state)
   state.game_over = false
   state.run_won = false
   M.draw_cards(state, M.HAND_SIZE)
-  state.message = "Select up to 5 cards and play a poker hand."
+  state.message = ("Select up to %d cards and play a poker hand."):format(M.MAX_SELECT)
 end
 
 function M.card_sprite_path(card, theme)

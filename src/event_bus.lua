@@ -4,6 +4,7 @@ EventBus.__index = EventBus
 function EventBus.new()
   return setmetatable({
     listeners = {},
+    errors = {},
   }, EventBus)
 end
 
@@ -69,8 +70,28 @@ function EventBus:emit(event_name, payload)
     snapshot[i] = bucket[i]
   end
   for i = 1, #snapshot do
-    snapshot[i](payload)
+    local ok, err = pcall(snapshot[i], payload)
+    if not ok then
+      self.errors[#self.errors + 1] = {
+        event = event_name,
+        error = tostring(err),
+        handler_index = i,
+      }
+    end
   end
+end
+
+function EventBus:last_error()
+  if #self.errors == 0 then
+    return nil
+  end
+  return self.errors[#self.errors]
+end
+
+function EventBus:drain_errors()
+  local errs = self.errors
+  self.errors = {}
+  return errs
 end
 
 return EventBus

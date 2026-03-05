@@ -547,4 +547,107 @@ describe("game_logic", function()
       assert.is_truthy(sell_card.combined)
     end)
   end)
+
+  describe("rank_to_value", function()
+    it("maps numeric ranks to themselves", function()
+      for _, r in ipairs({ 2, 3, 4, 5, 6, 7, 8, 9, 10 }) do
+        assert.are.equal(r, game.rank_to_value(r))
+      end
+    end)
+
+    it("maps face cards correctly", function()
+      assert.are.equal(11, game.rank_to_value("J"))
+      assert.are.equal(12, game.rank_to_value("Q"))
+      assert.are.equal(13, game.rank_to_value("K"))
+    end)
+
+    it("maps Ace to 14 explicitly", function()
+      assert.are.equal(14, game.rank_to_value("A"))
+    end)
+
+    it("returns 0 for unknown rank strings", function()
+      assert.are.equal(0, game.rank_to_value("X"))
+      assert.are.equal(0, game.rank_to_value(""))
+    end)
+  end)
+
+  describe("EV calculation helpers", function()
+    it("score_ev_for_card values Aces highest", function()
+      local state = game.new_state(deterministic_rng)
+      -- Use shop_expected_value to exercise score_ev_for_card indirectly
+      local ace_ev = game.shop_expected_value(state, {
+        action = "buy_offer",
+        offer = { type = "card", card = { rank = "A", suit = "S" }, price = 4 },
+      })
+      local two_ev = game.shop_expected_value(state, {
+        action = "buy_offer",
+        offer = { type = "card", card = { rank = 2, suit = "S" }, price = 4 },
+      })
+      assert.is_true(ace_ev.score_ev > two_ev.score_ev)
+    end)
+
+    it("score_ev_for_joker scales with rarity", function()
+      local state = game.new_state(deterministic_rng)
+      state.score = game.current_target(state) - 1
+      game.toggle_selection(state, 1)
+      game.play_selected(state)
+      state.money = 100
+
+      local common_ev = game.shop_expected_value(state, {
+        action = "buy_offer",
+        offer = { type = "joker", joker_key = "JOKER", rarity = "common", price = 6 },
+      })
+      -- Greedy Joker is uncommon with formula "+3 Mult"
+      local uncommon_ev = game.shop_expected_value(state, {
+        action = "buy_offer",
+        offer = { type = "joker", joker_key = "GREEDY_JOKER", rarity = "uncommon", price = 8 },
+      })
+      assert.is_true(uncommon_ev.score_ev > common_ev.score_ev)
+    end)
+
+    it("normalize_ev produces correct verdicts", function()
+      -- Good: buy a rare joker cheaply
+      local state = game.new_state(deterministic_rng)
+      state.score = game.current_target(state) - 1
+      game.toggle_selection(state, 1)
+      game.play_selected(state)
+      state.money = 100
+
+      local good = game.shop_expected_value(state, {
+        action = "buy_offer",
+        offer = { type = "joker", joker_key = "FLUSH_MASTER", rarity = "rare", price = 1 },
+      })
+      assert.are.equal("good", good.verdict)
+    end)
+
+    it("EV tunables load from config", function()
+      local defaults = config.defaults()
+      assert.is_truthy(defaults.ev)
+      assert.are.equal(8, defaults.ev.card_base_offset)
+      assert.are.equal(1.3, defaults.ev.card_rank_weight)
+      assert.are.equal(1.5, defaults.ev.ace_bonus)
+      assert.are.equal(4, defaults.ev.rarity_bonus.common)
+      assert.are.equal(7, defaults.ev.rarity_bonus.uncommon)
+      assert.are.equal(11, defaults.ev.rarity_bonus.rare)
+    end)
+  end)
+
+  describe("config-driven messages", function()
+    it("new_run message uses MAX_SELECT not hardcoded 5", function()
+      local state = game.new_state(deterministic_rng)
+      game.new_run(state)
+      assert.is_truthy(state.message:find(tostring(game.MAX_SELECT)))
+    end)
+
+    it("max jokers message uses MAX_JOKERS not hardcoded 5", function()
+      local state = game.new_state(deterministic_rng)
+      -- Fill all joker slots
+      for i = 1, game.MAX_JOKERS do
+        state.jokers[i] = "JOKER"
+      end
+      local result = game.add_joker(state, "JOKER")
+      assert.is_false(result.ok)
+      assert.is_truthy(result.message:find(tostring(game.MAX_JOKERS)))
+    end)
+  end)
 end)

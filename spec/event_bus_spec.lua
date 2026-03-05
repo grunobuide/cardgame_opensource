@@ -42,6 +42,47 @@ describe("event_bus", function()
 
     assert.are.equal(1, count)
   end)
+
+  it("continues to next handler when one throws", function()
+    local bus = EventBus.new()
+    local second_called = false
+    bus:on("boom", function() error("handler 1 failed!") end)
+    bus:on("boom", function() second_called = true end)
+    bus:emit("boom")
+    assert.is_true(second_called)
+  end)
+
+  it("records errors for inspection via last_error", function()
+    local bus = EventBus.new()
+    bus:on("err", function() error("oops") end)
+    bus:emit("err")
+    local last = bus:last_error()
+    assert.is_truthy(last)
+    assert.are.equal("err", last.event)
+    assert.is_truthy(last.error:find("oops"))
+  end)
+
+  it("drain_errors returns and clears the error log", function()
+    local bus = EventBus.new()
+    bus:on("e", function() error("fail") end)
+    bus:emit("e")
+    bus:emit("e")
+    local errs = bus:drain_errors()
+    assert.are.equal(2, #errs)
+    assert.is_nil(bus:last_error())
+  end)
+
+  it("once handler error does not leave listener registered", function()
+    local bus = EventBus.new()
+    local count = 0
+    bus:once("x", function()
+      count = count + 1
+      error("once handler failed")
+    end)
+    bus:emit("x")
+    bus:emit("x")
+    assert.are.equal(1, count)
+  end)
 end)
 
 describe("ui_state", function()

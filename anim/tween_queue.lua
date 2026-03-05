@@ -102,17 +102,24 @@ function TweenQueue:push(step)
 end
 
 function TweenQueue:run_next()
-  if #self.queue == 0 then
-    self.locked = false
-    return
+  -- Guard against infinite recursion from malformed queue items.
+  local max_skip = 64
+  local skipped = 0
+  while #self.queue > 0 do
+    local step = table.remove(self.queue, 1)
+    if step and step.run then
+      local ok, err = pcall(step.run)
+      if not ok then
+        self.stats.step_errors = (self.stats.step_errors or 0) + 1
+      end
+      return
+    end
+    skipped = skipped + 1
+    if skipped >= max_skip then
+      break
+    end
   end
-
-  local step = table.remove(self.queue, 1)
-  if step and step.run then
-    step.run()
-  else
-    self:run_next()
-  end
+  self.locked = false
 end
 
 function TweenQueue:add_tween(config)
@@ -156,7 +163,10 @@ function TweenQueue:add_tween(config)
       tween.subject[key] = to_value
     end
     if tween.on_complete then
-      tween.on_complete()
+      local ok, err = pcall(tween.on_complete)
+      if not ok then
+        self.stats.callback_errors = (self.stats.callback_errors or 0) + 1
+      end
     end
     return tween
   end
@@ -201,7 +211,10 @@ function TweenQueue:update(dt)
       processed = processed + 1
       if tween.elapsed >= tween.duration then
         if tween.on_complete then
-          tween.on_complete()
+          local ok, err = pcall(tween.on_complete)
+          if not ok then
+            self.stats.callback_errors = (self.stats.callback_errors or 0) + 1
+          end
         end
         table.remove(self.tweens, i)
       else
