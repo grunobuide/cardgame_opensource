@@ -416,7 +416,7 @@ local function draw_header(ctx, header, panel_alpha)
 
   local metrics = {
     { title = "TARGET", value = short_number(game.current_target(state)), border = palette.border, value_color = palette.text, icon = "target" },
-    { title = "SCORE", value = short_number(state.score), border = palette.accent_alt, value_color = palette.text, icon = "score" },
+    { title = "SCORE", value = short_number(ctx.score_fx and ctx.score_fx:get_display_score() or state.score), border = palette.accent_alt, value_color = palette.text, icon = "score" },
     {
       title = "HANDS",
       value = tostring(state.hands or 0),
@@ -710,16 +710,39 @@ local function draw_hand(ctx, area, panel_alpha)
       shadow_color = palette.shadow,
     })
 
+    -- Card flip: scaleX based on flip progress (0=face-down, 1=face-up)
+    local flip_t = visual.flip or 1
+    local flip_scaleX = math.abs(flip_t * 2 - 1)
+    local is_face_up = flip_t >= 0.5
+    local center_x = draw_x + visual.w * 0.5
+
     love.graphics.setColor(1, 1, 1, visual.alpha)
-    if image then
-      local sx = visual.w / image:getWidth()
-      local sy = visual.h / image:getHeight()
-      love.graphics.draw(image, draw_x, draw_y, visual.rotation, sx * visual.scale, sy * visual.scale)
+    if is_face_up then
+      if image then
+        local sx = (visual.w / image:getWidth()) * flip_scaleX * visual.scale
+        local sy = (visual.h / image:getHeight()) * visual.scale
+        love.graphics.draw(image, center_x, draw_y, visual.rotation, sx, sy, image:getWidth() * 0.5, 0)
+      else
+        local fw = visual.w * flip_scaleX
+        local fx = center_x - fw * 0.5
+        love.graphics.setColor(0.96, 0.96, 1.0, visual.alpha)
+        love.graphics.rectangle("fill", fx, draw_y, fw, visual.h)
+        love.graphics.setColor(0.1, 0.1, 0.18, visual.alpha)
+        love.graphics.printf(ctx.game.card_label(card), fx, draw_y + (visual.h * 0.5) - 10, fw, "center")
+      end
     else
-      love.graphics.setColor(0.96, 0.96, 1.0, visual.alpha)
-      love.graphics.rectangle("fill", draw_x, draw_y, visual.w, visual.h)
-      love.graphics.setColor(0.1, 0.1, 0.18, visual.alpha)
-      love.graphics.printf(ctx.game.card_label(card), draw_x, draw_y + (visual.h * 0.5) - 10, visual.w, "center")
+      -- Face-down: draw card back
+      local fw = visual.w * flip_scaleX
+      local fx = center_x - fw * 0.5
+      love.graphics.setColor(0.12, 0.08, 0.28, visual.alpha)
+      love.graphics.rectangle("fill", fx, draw_y, fw, visual.h)
+      love.graphics.setColor(palette.accent[1], palette.accent[2], palette.accent[3], 0.3 * visual.alpha)
+      -- Diamond pattern on card back
+      local cx = fx + fw * 0.5
+      local cy = draw_y + visual.h * 0.5
+      local diamond_w = fw * 0.3
+      local diamond_h = visual.h * 0.25
+      love.graphics.polygon("fill", cx, cy - diamond_h, cx + diamond_w, cy, cx, cy + diamond_h, cx - diamond_w, cy)
     end
 
     if selected then
@@ -1010,14 +1033,29 @@ local function draw_joker_dock(ctx, area, panel_alpha)
       frame_asset = "joker_slot_empty"
     end
 
+    -- Joker activation flash glow
+    local flash_timer = ctx.joker_flash and ctx.joker_flash[i] or nil
+    local flash_border = border
+    if flash_timer and flash_timer > 0 and joker then
+      local flash_alpha = clamp(flash_timer / 0.35, 0, 1)
+      flash_border = { palette.ok[1], palette.ok[2], palette.ok[3], flash_alpha }
+    end
+
     PixelKit.draw_panel(x, draw_y, slot_w, slot_h, {
       asset = frame_asset,
       fill = { 0.06, 0.05, 0.14, 1.0 },
-      border = border,
-      border_width = 2,
+      border = flash_timer and flash_timer > 0 and flash_border or border,
+      border_width = (flash_timer and flash_timer > 0) and 3 or 2,
       shadow = 2,
       shadow_color = palette.shadow,
     })
+
+    -- Draw flash overlay on slot
+    if flash_timer and flash_timer > 0 and joker then
+      local flash_alpha = clamp(flash_timer / 0.35, 0, 1) * 0.25
+      love.graphics.setColor(palette.ok[1], palette.ok[2], palette.ok[3], flash_alpha)
+      love.graphics.rectangle("fill", x + 2, draw_y + 2, slot_w - 4, slot_h - 4)
+    end
 
     if joker then
       local icon_size = math.min(slot_w - 10, slot_h - 20)
@@ -1343,6 +1381,65 @@ local function draw_shop_modal(ctx)
   love.graphics.printf(clipped_text(fonts.small, controls, panel_w - 48), x + 24, y + panel_h - 56, panel_w - 48, "center")
 end
 
+local function draw_score_popups(ctx)
+  local score_fx = ctx.score_fx
+  if not score_fx then
+    return
+  end
+  local fonts = ctx.fonts
+  for _, popup in ipairs(score_fx:active_popups()) do
+    local progress = clamp(popup.elapsed / math.max(0.01, popup.lifetime), 0, 1)
+    local alpha = 1 - (progress * progress)
+    local scale = popup.scale * (1 + progress * 0.15)
+    love.graphics.setColor(popup.color[1], popup.color[2], popup.color[3], alpha)
+    love.graphics.setFont(fonts.ui)
+    love.graphics.push()
+    love.graphics.translate(popup.x, popup.y)
+    love.graphics.scale(scale, scale)
+    love.graphics.print(popup.text, 0, 0)
+    love.graphics.pop()
+  end
+end
+
+local function draw_particles(ctx)
+  local emitter = ctx.particles
+  if not emitter then
+    return
+  end
+  for _, p in ipairs(emitter:active_particles()) do
+    local progress = clamp(p.elapsed / math.max(0.01, p.lifetime), 0, 1)
+    local alpha = 1 - progress
+    local size = p.size * (1 - progress * 0.5)
+    love.graphics.setColor(p.color[1], p.color[2], p.color[3], alpha * (p.color[4] or 1))
+    love.graphics.rectangle("fill", p.x - size * 0.5, p.y - size * 0.5, size, size)
+  end
+end
+
+local function draw_phase_transition(ctx)
+  local pt = ctx.phase_transition
+  if not pt or ctx.reduced_motion then
+    return
+  end
+  local progress = clamp(pt.elapsed / math.max(0.01, pt.duration), 0, 1)
+  local alpha = (1 - progress) * 0.35
+  local palette = ctx.palette
+  local color = palette.accent_alt
+  if pt.color == "magenta" then
+    color = palette.accent
+  elseif pt.color == "green" then
+    color = palette.ok
+  end
+  local w, h = love.graphics.getWidth(), love.graphics.getHeight()
+  love.graphics.setColor(color[1], color[2], color[3], alpha)
+  love.graphics.rectangle("fill", 0, 0, w, h)
+  -- Scanline effect
+  local line_alpha = alpha * 0.6
+  love.graphics.setColor(color[1], color[2], color[3], line_alpha)
+  for y = 0, h, 6 do
+    love.graphics.rectangle("fill", 0, y, w, 2)
+  end
+end
+
 function Render.draw(ctx)
   local layout = Layout.columns(love.graphics.getWidth(), love.graphics.getHeight())
   local top_offset, top_alpha = panel_transition(ctx, 1)
@@ -1368,6 +1465,11 @@ function Render.draw(ctx)
   local action_tooltip = draw_actions(ctx, actions_area, actions_alpha)
   draw_run_summary(ctx, summary_area, summary_alpha)
   local joker_tooltip = draw_joker_dock(ctx, joker_area, joker_alpha)
+
+  -- Game feel overlays
+  draw_score_popups(ctx)
+  draw_particles(ctx)
+  draw_phase_transition(ctx)
 
   draw_shop_modal(ctx)
   draw_seed_prompt(ctx)

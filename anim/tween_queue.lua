@@ -47,6 +47,10 @@ TweenQueue.presets = {
   card_reflow = { duration = 0.14, ease = "in_out_quad", stagger = 0.012 },
   modal_enter = { duration = 0.16, ease = "out_quad" },
   modal_exit = { duration = 0.12, ease = "in_quad" },
+  score_popup = { duration = 1.2, ease = "out_quad" },
+  card_flip = { duration = 0.28, ease = "in_out_quad" },
+  joker_flash = { duration = 0.35, ease = "out_quad" },
+  phase_transition = { duration = 0.4, ease = "out_quad" },
 }
 
 local function now_time()

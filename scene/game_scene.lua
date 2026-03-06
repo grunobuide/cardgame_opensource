@@ -7,6 +7,8 @@ local Typography = require("ui.typography")
 local Render = require("ui.render")
 local Layout = require("ui.layout")
 local UiState = require("ui.ui_state")
+local ScoreFx = require("ui.score_fx")
+local ParticleEmitter = require("anim.particles")
 local CardVisuals = require("scene.card_visuals")
 local Actions = require("scene.actions")
 local Input = require("scene.input")
@@ -91,6 +93,10 @@ function GameScene.new()
       run_result = nil,
       seed_buffer = "",
     },
+    score_fx = ScoreFx.new(),
+    particles = ParticleEmitter.new(),
+    joker_flash = {},
+    phase_transition = nil,
     base_width = 1366,
     base_height = 768,
     viewport_scale = 1,
@@ -139,6 +145,8 @@ function GameScene:load_run()
   if self.anim and self.anim.set_reduced_motion then
     self.anim:set_reduced_motion(self.reduced_motion)
   end
+  self.score_fx:set_reduced_motion(self.reduced_motion)
+  self.particles:set_reduced_motion(self.reduced_motion)
 
   if not self.run_stats and not self.state.game_over then
     self:init_run_stats()
@@ -382,6 +390,8 @@ function GameScene:load()
   self.ui_state = UiState.new(self.event_bus)
   self.save_store = SaveLoad.new({ game = game })
   self.anim:set_reduced_motion(self.reduced_motion)
+  self.score_fx:set_reduced_motion(self.reduced_motion)
+  self.particles:set_reduced_motion(self.reduced_motion)
 
   self.buttons = Layout.buttons()
   Layout.position_buttons(self.buttons, self.base_width, self.base_height)
@@ -399,7 +409,28 @@ function GameScene:update(dt)
   self:update_viewport()
   Layout.position_buttons(self.buttons, self.base_width, self.base_height)
   self.anim:update(step_dt)
+  self.score_fx:update(step_dt)
+  self.particles:update(step_dt)
   self:update_selection_lifts(step_dt)
+
+  -- Tick joker flash timers
+  for slot, timer in pairs(self.joker_flash) do
+    self.joker_flash[slot] = timer - step_dt
+    if self.joker_flash[slot] <= 0 then
+      self.joker_flash[slot] = nil
+    end
+  end
+
+  -- Tick phase transition
+  if self.phase_transition then
+    self.phase_transition.elapsed = self.phase_transition.elapsed + step_dt
+    if self.phase_transition.elapsed >= self.phase_transition.duration then
+      self.phase_transition = nil
+    end
+  end
+
+  -- Keep display score in sync
+  self.score_fx:set_target_score(self.state.score or 0)
   if self.reduced_motion then
     self.ui_panel_intro = 1
     self.overlay_alpha.shop = (self.state.shop and self.state.shop.active) and 1 or 0
@@ -475,6 +506,10 @@ function GameScene:draw()
     anim_stats = self.anim.stats,
     mouse_x = self.mouse_x,
     mouse_y = self.mouse_y,
+    score_fx = self.score_fx,
+    particles = self.particles,
+    joker_flash = self.joker_flash,
+    phase_transition = self.phase_transition,
     get_image = function(path)
       return self:get_image(path)
     end,
