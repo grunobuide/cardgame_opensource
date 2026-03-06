@@ -137,6 +137,46 @@ function M.install(GameScene, game)
       result = game.play_selected(self.state)
       if result and result.ok then
         self:record_play(selected_count, result)
+        -- Game feel: score popups, particles, joker flash
+        local projection = result.projection
+        if projection and self.score_fx then
+          local fx_x = self.base_width * 0.35
+          local fx_y = self.base_height * 0.18
+          self.score_fx:spawn_score(
+            projection.total_chips or 0,
+            projection.total_mult or 0,
+            projection.total or 0,
+            fx_x, fx_y
+          )
+          if self.particles then
+            self.particles:emit_chips(fx_x, fx_y)
+            self.particles:emit_mult(fx_x + 80, fx_y)
+          end
+          -- Flash jokers that contributed
+          if projection.joker_details and self.joker_flash then
+            for slot, jkey in ipairs(self.state.jokers or {}) do
+              for _, detail in ipairs(projection.joker_details) do
+                if detail.joker_key == jkey then
+                  self.joker_flash[slot] = 0.35
+                  if self.particles then
+                    local dock_x = self.base_width * 0.78 + (slot - 1) * 58
+                    local dock_y = self.base_height * 0.72
+                    self.particles:emit_joker(dock_x, dock_y)
+                  end
+                  break
+                end
+              end
+            end
+          end
+        end
+        -- Phase transitions
+        if result.event == "next_blind" or result.event == "next_ante" then
+          self.phase_transition = { color = "cyan", elapsed = 0, duration = 0.4 }
+        elseif result.event == "run_won" then
+          self.phase_transition = { color = "green", elapsed = 0, duration = 0.5 }
+        elseif result.event == "game_over" then
+          self.phase_transition = { color = "magenta", elapsed = 0, duration = 0.4 }
+        end
         if self.state.game_over then
           self:build_run_result()
         end

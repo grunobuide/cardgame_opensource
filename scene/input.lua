@@ -133,6 +133,12 @@ function M.install(GameScene, game)
       if self.anim and self.anim.set_reduced_motion then
         self.anim:set_reduced_motion(self.reduced_motion)
       end
+      if self.score_fx and self.score_fx.set_reduced_motion then
+        self.score_fx:set_reduced_motion(self.reduced_motion)
+      end
+      if self.particles and self.particles.set_reduced_motion then
+        self.particles:set_reduced_motion(self.reduced_motion)
+      end
       push_message(
         self,
         self.reduced_motion and "Reduced motion enabled." or "Reduced motion disabled.",

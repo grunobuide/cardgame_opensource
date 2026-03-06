@@ -73,6 +73,7 @@ function M.install(GameScene, game)
       rotation = 0,
       lift = 0,
       target_lift = 0,
+      flip = from_deal and 0 or 1,
       exiting = false,
       to_remove = false,
     }
@@ -127,6 +128,7 @@ function M.install(GameScene, game)
         visual.alpha = 1
         visual.scale = 1
         visual.rotation = 0
+        visual.flip = 1
       elseif rebuild_mode == "deal" then
         if visual.alpha < 0.99 then
           self.anim:add_tween({
@@ -134,6 +136,13 @@ function M.install(GameScene, game)
             delay = delay,
             subject = visual,
             to = { x = slot.x, y = slot.y, alpha = 1, scale = 1, rotation = 0 },
+          })
+          -- Card flip: starts at 0 (face-down), tweens to 1 (face-up)
+          self.anim:add_tween({
+            preset = "card_flip",
+            delay = delay + 0.08,
+            subject = visual,
+            to = { flip = 1 },
           })
         else
           self.anim:add_tween({
