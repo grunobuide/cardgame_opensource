@@ -83,10 +83,12 @@ function GameScene.new()
     current_seed = "",
     reduced_motion = false,
     ui_panel_intro = 0,
+    settings_open = false,
     overlay_alpha = {
       shop = 0,
       run_result = 0,
       seed_prompt = 0,
+      settings = 0,
     },
     overlay_snapshots = {
       shop = nil,
@@ -436,11 +438,13 @@ function GameScene:update(dt)
     self.overlay_alpha.shop = (self.state.shop and self.state.shop.active) and 1 or 0
     self.overlay_alpha.run_result = self.run_result and 1 or 0
     self.overlay_alpha.seed_prompt = self.seed_input_mode and 1 or 0
+    self.overlay_alpha.settings = self.settings_open and 1 or 0
   else
     self.ui_panel_intro = approach(self.ui_panel_intro, 1, step_dt * 3.4)
     self.overlay_alpha.shop = approach(self.overlay_alpha.shop, (self.state.shop and self.state.shop.active) and 1 or 0, step_dt * 7.2)
     self.overlay_alpha.run_result = approach(self.overlay_alpha.run_result, self.run_result and 1 or 0, step_dt * 6.4)
     self.overlay_alpha.seed_prompt = approach(self.overlay_alpha.seed_prompt, self.seed_input_mode and 1 or 0, step_dt * 8.0)
+    self.overlay_alpha.settings = approach(self.overlay_alpha.settings, self.settings_open and 1 or 0, step_dt * 8.0)
   end
 
   if self.state.shop and self.state.shop.active then

@@ -218,6 +218,10 @@ function M.install(GameScene, game)
       result = game.shop_deck_upgrade(self.state)
     elseif action_id == "shop_deck_duplicate" then
       result = game.shop_deck_duplicate(self.state)
+    elseif action_id == "use_consumable_1" then
+      result = game.use_consumable(self.state, 1)
+    elseif action_id == "use_consumable_2" then
+      result = game.use_consumable(self.state, 2)
     else
       local sell_joker_idx = action_id:match("^shop_sell_joker_(%d+)$")
       if sell_joker_idx then
