@@ -21,6 +21,9 @@ local function apply_tunables(tunables)
   M.HAND_SIZE = run.hand_size or 8
   M.MAX_SELECT = run.max_select or 5
   M.MAX_JOKERS = run.max_jokers or 5
+  M.MAX_CONSUMABLES = run.max_consumables or 2
+  M.HAND_LEVEL_BONUS = tunables.hand_level_bonus or { chips_per_level = 10, mult_per_level = 1 }
+  M.ENHANCEMENTS = tunables.enhancements or { foil_chips = 50, holo_mult = 10, poly_x_mult = 1.5 }
   M.INVENTORY_SCHEMA = ((tunables.inventory or {}).schema) or 1
   M.EV = tunables.ev or {}
 end
@@ -445,7 +448,12 @@ end
 function M.current_target(state)
   local base = M.target_score(state.ante)
   local blind = M.current_blind(state)
-  return math.floor((base * blind.target_mult) + 0.5)
+  local target = math.floor((base * blind.target_mult) + 0.5)
+  -- Boss blind: THE_WALL doubles target
+  if state.boss_blind_key == "THE_WALL" and blind.id == "boss" then
+    target = target * 2
+  end
+  return target
 end
 
 function M.blind_clear_payout(state, blind)
@@ -493,22 +501,38 @@ end
 
 function M.roll_shop_offers(state, count)
   local total = count or M.SHOP.offer_count
-  local keys = {}
+  local joker_keys = {}
   for joker_key, _ in pairs(M.JOKERS) do
-    keys[#keys + 1] = joker_key
+    joker_keys[#joker_keys + 1] = joker_key
   end
-  table.sort(keys)
+  table.sort(joker_keys)
+
+  local consumable_keys = {}
+  for ckey, _ in pairs(M.CONSUMABLES) do
+    consumable_keys[#consumable_keys + 1] = ckey
+  end
+  table.sort(consumable_keys)
 
   local offers = {}
-  for i = 1, total do
+  for _ = 1, total do
     local offer
     local roll = state.rng(1, 100)
-    local joker_weight = M.SHOP.joker_offer_weight or 70
-    if #keys == 0 then
+    local joker_weight = M.SHOP.joker_offer_weight or 50
+    local consumable_weight = M.SHOP.consumable_offer_weight or 20
+    if #joker_keys == 0 and #consumable_keys == 0 then
       offer = shop_offer_from_card(state)
-    elseif roll <= joker_weight then
-      local key = keys[state.rng(1, #keys)]
+    elseif roll <= joker_weight and #joker_keys > 0 then
+      local key = joker_keys[state.rng(1, #joker_keys)]
       offer = shop_offer_from_joker_key(state, key)
+    elseif roll <= joker_weight + consumable_weight and #consumable_keys > 0 then
+      local key = consumable_keys[state.rng(1, #consumable_keys)]
+      local consumable = M.CONSUMABLES[key]
+      offer = {
+        type = "consumable",
+        consumable_key = key,
+        price = consumable.category == "planet" and 5 or 6,
+        rarity = consumable.rarity or "common",
+      }
     else
       offer = shop_offer_from_card(state)
     end
@@ -666,6 +690,9 @@ function M.shop_buy_offer(state, index)
   if offer.type == "joker" and #state.jokers >= M.MAX_JOKERS then
     return { ok = false, reason = "max_jokers", message = ("Max %d Jokers!"):format(M.MAX_JOKERS) }
   end
+  if offer.type == "consumable" and #(state.consumables or {}) >= M.MAX_CONSUMABLES then
+    return { ok = false, reason = "max_consumables", message = ("Max %d Consumables!"):format(M.MAX_CONSUMABLES) }
+  end
 
   inventory_spend(state, offer.price, "shop_buy", {
     offer_type = offer.type,
@@ -681,6 +708,13 @@ function M.shop_buy_offer(state, index)
     payload.joker_key = offer.joker_key
     payload.offer_type = "joker"
     state.message = ("Bought %s for $%d."):format(joker_name, offer.price)
+  elseif offer.type == "consumable" then
+    state.consumables = state.consumables or {}
+    state.consumables[#state.consumables + 1] = offer.consumable_key
+    local cname = M.CONSUMABLES[offer.consumable_key] and M.CONSUMABLES[offer.consumable_key].name or offer.consumable_key
+    payload.consumable_key = offer.consumable_key
+    payload.offer_type = "consumable"
+    state.message = ("Bought %s for $%d."):format(cname, offer.price)
   else
     local card = clone_card(offer.card)
     state.deck_cards[#state.deck_cards + 1] = card
@@ -1218,6 +1252,259 @@ M.register_joker("CONSERVATIVE", {
   end,
 })
 
+-- ============================================================
+-- CONSUMABLE REGISTRY
+-- ============================================================
+M.CONSUMABLES = {}
+
+function M.register_consumable(key, definition)
+  local def = definition or {}
+  M.CONSUMABLES[key] = {
+    name = def.name or key,
+    category = def.category or "tarot",
+    rarity = def.rarity or "common",
+    description = def.description or "",
+    apply = def.apply or function() return {} end,
+  }
+end
+
+-- Planet cards: upgrade a hand type by +1 level
+local planet_defs = {
+  { key = "MERCURY", name = "Mercury", hand = "PAIR" },
+  { key = "VENUS", name = "Venus", hand = "THREE_KIND" },
+  { key = "EARTH", name = "Earth", hand = "FULL_HOUSE" },
+  { key = "MARS", name = "Mars", hand = "FLUSH" },
+  { key = "JUPITER", name = "Jupiter", hand = "STRAIGHT" },
+  { key = "SATURN", name = "Saturn", hand = "TWO_PAIR" },
+  { key = "NEPTUNE", name = "Neptune", hand = "STRAIGHT_FLUSH" },
+  { key = "PLUTO", name = "Pluto", hand = "HIGH_CARD" },
+}
+
+for _, pdef in ipairs(planet_defs) do
+  M.register_consumable(pdef.key, {
+    name = pdef.name,
+    category = "planet",
+    description = ("Level up %s (+%d chips, +%d mult per level)"):format(
+      pdef.hand, 10, 1
+    ),
+    apply = function(state)
+      state.hand_levels = state.hand_levels or {}
+      state.hand_levels[pdef.hand] = (state.hand_levels[pdef.hand] or 0) + 1
+      return { ok = true, message = ("%s leveled up %s!"):format(pdef.name, pdef.hand) }
+    end,
+  })
+end
+
+-- Tarot cards
+M.register_consumable("THE_FOOL", {
+  name = "The Fool",
+  category = "tarot",
+  description = "Copy the last played hand type as a consumable (if slot open).",
+  apply = function(state)
+    local last = state.last_hand_type
+    if not last then
+      return { ok = false, message = "No hand played yet." }
+    end
+    -- Find the matching planet card key
+    for _, pdef in ipairs(planet_defs) do
+      if pdef.hand == last then
+        if #(state.consumables or {}) < M.MAX_CONSUMABLES then
+          state.consumables[#state.consumables + 1] = pdef.key
+          return { ok = true, message = ("The Fool created %s!"):format(pdef.name) }
+        end
+        return { ok = false, message = "Consumable slots full." }
+      end
+    end
+    return { ok = true, message = "The Fool has no effect." }
+  end,
+})
+
+M.register_consumable("HIGH_PRIESTESS", {
+  name = "High Priestess",
+  category = "tarot",
+  description = "Draw +2 cards for this blind.",
+  apply = function(state)
+    M.draw_cards(state, 2)
+    return { ok = true, message = "High Priestess drew 2 extra cards!" }
+  end,
+})
+
+M.register_consumable("THE_HERMIT", {
+  name = "The Hermit",
+  category = "tarot",
+  description = "Double your money (max +$20).",
+  apply = function(state)
+    local bonus = math.min(state.money, 20)
+    state.money = state.money + bonus
+    return { ok = true, message = ("The Hermit doubled money! +$%d"):format(bonus) }
+  end,
+})
+
+M.register_consumable("THE_WHEEL", {
+  name = "The Wheel",
+  category = "tarot",
+  description = "1-in-4 chance to add Foil to a random hand card.",
+  apply = function(state)
+    if #(state.hand or {}) == 0 then
+      return { ok = false, message = "No cards in hand." }
+    end
+    local roll = state.rng(1, 4)
+    if roll == 1 then
+      local idx = state.rng(1, #state.hand)
+      state.hand[idx].enhancement = "foil"
+      return { ok = true, message = ("The Wheel granted Foil to %s!"):format(M.card_label(state.hand[idx])) }
+    end
+    return { ok = true, message = "The Wheel spun... no luck this time." }
+  end,
+})
+
+function M.use_consumable(state, slot)
+  if not state.consumables or not state.consumables[slot] then
+    return { ok = false, reason = "no_consumable", message = "No consumable in that slot." }
+  end
+  local key = state.consumables[slot]
+  local consumable = M.CONSUMABLES[key]
+  if not consumable then
+    return { ok = false, reason = "unknown_consumable", message = "Unknown consumable." }
+  end
+  local result = consumable.apply(state)
+  if result and result.ok ~= false then
+    table.remove(state.consumables, slot)
+    state.message = result.message or ("Used %s."):format(consumable.name)
+    return { ok = true, event = "consumable_used", consumable_key = key, message = state.message }
+  end
+  state.message = result and result.message or "Consumable had no effect."
+  return { ok = false, reason = "apply_failed", message = state.message }
+end
+
+-- ============================================================
+-- BOSS BLIND REGISTRY
+-- ============================================================
+M.BOSS_BLINDS = {}
+
+function M.register_boss_blind(key, definition)
+  local def = definition or {}
+  M.BOSS_BLINDS[key] = {
+    name = def.name or key,
+    description = def.description or "",
+    on_start = def.on_start or function() end,
+    on_play = def.on_play or function() end,
+    on_score = def.on_score or function(_state, projection) return projection end,
+  }
+end
+
+M.register_boss_blind("THE_HOOK", {
+  name = "The Hook",
+  description = "Discards 2 random cards at blind start.",
+  on_start = function(state)
+    for _ = 1, 2 do
+      if #state.hand > 1 then
+        local idx = state.rng(1, #state.hand)
+        table.remove(state.hand, idx)
+      end
+    end
+    M.replenish_hand(state)
+  end,
+})
+
+M.register_boss_blind("THE_WALL", {
+  name = "The Wall",
+  description = "Target score is doubled.",
+  -- Effect applied via boss_target_mult in current_target
+})
+
+M.register_boss_blind("THE_FLINT", {
+  name = "The Flint",
+  description = "Base chips and mult are halved.",
+  on_score = function(_state, projection)
+    projection.base_chips = math.floor(projection.base_chips * 0.5)
+    projection.base_mult = math.max(1, math.floor(projection.base_mult * 0.5))
+    return projection
+  end,
+})
+
+M.register_boss_blind("THE_MARK", {
+  name = "The Mark",
+  description = "Face cards are drawn face-down (hidden rank).",
+  on_start = function(state)
+    for _, card in ipairs(state.hand) do
+      local val = M.rank_to_value(card.rank)
+      if val >= 11 and val <= 13 then
+        card.face_down = true
+      end
+    end
+  end,
+})
+
+M.register_boss_blind("THE_PSYCHIC", {
+  name = "The Psychic",
+  description = "Must play exactly 5 cards.",
+  on_play = function(state, cards)
+    if #cards ~= 5 then
+      return { blocked = true, message = "The Psychic demands exactly 5 cards!" }
+    end
+  end,
+})
+
+M.register_boss_blind("THE_NEEDLE", {
+  name = "The Needle",
+  description = "Only 1 hand allowed this blind.",
+  on_start = function(state)
+    state.hands = 1
+  end,
+})
+
+function M.roll_boss_blind(state)
+  local keys = {}
+  for key in pairs(M.BOSS_BLINDS) do
+    keys[#keys + 1] = key
+  end
+  table.sort(keys)
+  if #keys == 0 then
+    return nil
+  end
+  return keys[state.rng(1, #keys)]
+end
+
+function M.apply_boss_blind_start(state)
+  local boss_key = state.boss_blind_key
+  if not boss_key then return end
+  local boss = M.BOSS_BLINDS[boss_key]
+  if boss and boss.on_start then
+    boss.on_start(state)
+  end
+end
+
+function M.apply_boss_blind_on_play(state, cards)
+  local boss_key = state.boss_blind_key
+  if not boss_key then return nil end
+  local boss = M.BOSS_BLINDS[boss_key]
+  if boss and boss.on_play then
+    return boss.on_play(state, cards)
+  end
+  return nil
+end
+
+-- ============================================================
+-- CARD ENHANCEMENT HELPERS
+-- ============================================================
+
+function M.apply_card_enhancement(card, chips, mult, x_mult)
+  if not card or not card.enhancement then
+    return chips, mult, x_mult
+  end
+  local enh = card.enhancement
+  local cfg = M.ENHANCEMENTS
+  if enh == "foil" then
+    chips = chips + (cfg.foil_chips or 50)
+  elseif enh == "holo" then
+    mult = mult + (cfg.holo_mult or 10)
+  elseif enh == "polychrome" then
+    x_mult = x_mult * (cfg.poly_x_mult or 1.5)
+  end
+  return chips, mult, x_mult
+end
+
 function M.new_state(rng, opts)
   opts = opts or {}
   local state = {
@@ -1231,6 +1518,10 @@ function M.new_state(rng, opts)
     hand = {},
     selected = {},
     jokers = {},
+    consumables = {},
+    hand_levels = {},
+    boss_blind_key = nil,
+    last_hand_type = nil,
     owned_cards = {},
     deck_cards = {},
     inventory = nil,
@@ -1315,8 +1606,26 @@ function M.calculate_projection(state, cards)
   local hand_type = M.evaluate_hand(cards)
   local current_chips = hand_type.chips
   local current_mult = hand_type.mult
+  local x_mult = 1
   local details = {}
 
+  -- Apply hand level bonuses
+  local hand_levels = state.hand_levels or {}
+  local level = hand_levels[hand_type.id] or 0
+  if level > 0 then
+    local bonus = M.HAND_LEVEL_BONUS or {}
+    current_chips = current_chips + level * (bonus.chips_per_level or 10)
+    current_mult = current_mult + level * (bonus.mult_per_level or 1)
+  end
+
+  -- Apply per-card enhancements (foil/holo/polychrome)
+  for _, card in ipairs(cards) do
+    if card.enhancement then
+      current_chips, current_mult, x_mult = M.apply_card_enhancement(card, current_chips, current_mult, x_mult)
+    end
+  end
+
+  -- Apply joker effects
   for _, joker_key in ipairs(state.jokers) do
     local joker = M.JOKERS[joker_key]
     if joker then
@@ -1331,15 +1640,30 @@ function M.calculate_projection(state, cards)
     end
   end
 
-  return {
+  local projection = {
     hand_type = hand_type,
     base_chips = hand_type.chips,
     base_mult = hand_type.mult,
     total_chips = current_chips,
     total_mult = current_mult,
-    total = current_chips * current_mult,
+    x_mult = x_mult,
+    total = math.floor(current_chips * current_mult * x_mult),
     joker_details = details,
+    hand_level = level,
   }
+
+  -- Apply boss blind on_score hook (e.g. The Flint halves base)
+  local boss_key = state.boss_blind_key
+  if boss_key then
+    local boss = M.BOSS_BLINDS[boss_key]
+    if boss and boss.on_score then
+      projection = boss.on_score(state, projection)
+      -- Recalculate total after boss modification
+      projection.total = math.floor(projection.total_chips * projection.total_mult * (projection.x_mult or 1))
+    end
+  end
+
+  return projection
 end
 
 function M.next_ante(state)
@@ -1349,6 +1673,7 @@ function M.next_ante(state)
   state.score = 0
   state.hands = M.STARTING_HANDS
   state.discards = M.STARTING_DISCARDS
+  state.boss_blind_key = nil
   state.deck = M.build_run_deck(state)
   state.hand = {}
   M.draw_cards(state, M.HAND_SIZE)
@@ -1373,11 +1698,25 @@ function M.next_blind(state)
   state.score = 0
   state.hands = M.STARTING_HANDS
   state.discards = M.STARTING_DISCARDS
+  -- Roll boss blind when entering the boss blind slot
+  if state.blind_index == #M.BLINDS then
+    state.boss_blind_key = M.roll_boss_blind(state)
+  else
+    state.boss_blind_key = nil
+  end
   state.deck = M.build_run_deck(state)
   state.hand = {}
   M.draw_cards(state, M.HAND_SIZE)
   M.clear_selection(state)
-  state.message = ("Blind cleared! %s begins."):format(M.current_blind(state).label)
+  -- Apply boss blind on_start effect (e.g. The Hook, The Needle)
+  if state.boss_blind_key then
+    M.apply_boss_blind_start(state)
+    local boss = M.BOSS_BLINDS[state.boss_blind_key]
+    local boss_name = boss and boss.name or state.boss_blind_key
+    state.message = ("Boss Blind: %s! %s"):format(boss_name, boss and boss.description or "")
+  else
+    state.message = ("Blind cleared! %s begins."):format(M.current_blind(state).label)
+  end
   return "next_blind"
 end
 
@@ -1403,9 +1742,16 @@ function M.play_selected(state)
     return { ok = false, reason = "no_selection", message = "Select at least 1 card to play." }
   end
 
+  -- Boss blind on_play check (e.g. The Psychic requires exactly 5)
+  local boss_block = M.apply_boss_blind_on_play(state, chosen)
+  if boss_block and boss_block.blocked then
+    return { ok = false, reason = "boss_blocked", message = boss_block.message or "Blocked by boss blind." }
+  end
+
   local projection = M.calculate_projection(state, chosen)
   state.score = state.score + projection.total
   state.hands = state.hands - 1
+  state.last_hand_type = projection.hand_type and projection.hand_type.id or nil
   M.remove_selected_cards(state)
 
   local target = M.current_target(state)
@@ -1521,6 +1867,10 @@ function M.new_run(state)
   state.deck = M.build_run_deck(state)
   state.hand = {}
   state.jokers = {}
+  state.consumables = {}
+  state.hand_levels = {}
+  state.boss_blind_key = nil
+  state.last_hand_type = nil
   state.shop = nil
   M.clear_selection(state)
   state.game_over = false

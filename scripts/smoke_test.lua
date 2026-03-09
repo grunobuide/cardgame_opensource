@@ -68,6 +68,69 @@ local function run()
 
   local sprite = game.card_sprite_path({ rank = "A", suit = "S" }, "dark")
   assert_equals(sprite, "Cards/Cards_Dark/SA.png", "card sprite path should match expected format")
+
+  -- Phase 2: Consumable system
+  assert_true(game.CONSUMABLES ~= nil, "CONSUMABLES registry should exist")
+  assert_true(game.CONSUMABLES["MERCURY"] ~= nil, "MERCURY planet should be registered")
+  assert_true(game.CONSUMABLES["THE_HERMIT"] ~= nil, "THE_HERMIT tarot should be registered")
+  assert_equals(game.MAX_CONSUMABLES, 2, "max consumables should be 2")
+
+  -- Test use_consumable with planet card
+  local state2 = game.new_state()
+  game.new_run(state2)
+  state2.consumables = { "MERCURY" }
+  local use_result = game.use_consumable(state2, 1)
+  assert_true(use_result.ok, "using MERCURY should succeed")
+  assert_equals(state2.hand_levels["PAIR"], 1, "PAIR hand level should be 1 after MERCURY")
+  assert_equals(#state2.consumables, 0, "consumable should be removed after use")
+
+  -- Phase 2: Boss blind system
+  assert_true(game.BOSS_BLINDS ~= nil, "BOSS_BLINDS registry should exist")
+  assert_true(game.BOSS_BLINDS["THE_HOOK"] ~= nil, "THE_HOOK boss should be registered")
+  assert_true(game.BOSS_BLINDS["THE_WALL"] ~= nil, "THE_WALL boss should be registered")
+  assert_true(game.BOSS_BLINDS["THE_FLINT"] ~= nil, "THE_FLINT boss should be registered")
+  assert_true(game.BOSS_BLINDS["THE_MARK"] ~= nil, "THE_MARK boss should be registered")
+  assert_true(game.BOSS_BLINDS["THE_PSYCHIC"] ~= nil, "THE_PSYCHIC boss should be registered")
+  assert_true(game.BOSS_BLINDS["THE_NEEDLE"] ~= nil, "THE_NEEDLE boss should be registered")
+
+  local boss_key = game.roll_boss_blind(state2)
+  assert_true(boss_key ~= nil, "roll_boss_blind should return a key")
+  assert_true(game.BOSS_BLINDS[boss_key] ~= nil, "rolled boss should exist in registry")
+
+  -- Phase 2: Card enhancements
+  assert_true(game.ENHANCEMENTS ~= nil, "ENHANCEMENTS config should exist")
+  assert_equals(game.ENHANCEMENTS.foil_chips, 50, "foil should add 50 chips")
+  assert_equals(game.ENHANCEMENTS.holo_mult, 10, "holo should add 10 mult")
+  assert_equals(game.ENHANCEMENTS.poly_x_mult, 1.5, "poly should multiply by 1.5")
+
+  local foil_c, foil_m, foil_x = game.apply_card_enhancement({ rank = 5, suit = "S", enhancement = "foil" }, 10, 2, 1)
+  assert_equals(foil_c, 60, "foil should add 50 chips")
+  assert_equals(foil_m, 2, "foil should not change mult")
+
+  local holo_c, holo_m, holo_x = game.apply_card_enhancement({ rank = 5, suit = "S", enhancement = "holo" }, 10, 2, 1)
+  assert_equals(holo_m, 12, "holo should add 10 mult")
+
+  local poly_c, poly_m, poly_x = game.apply_card_enhancement({ rank = 5, suit = "S", enhancement = "polychrome" }, 10, 2, 1)
+  assert_equals(poly_x, 1.5, "polychrome should set x_mult to 1.5")
+
+  -- Phase 2: Hand level bonuses in projection
+  state2.hand_levels = { PAIR = 2 }
+  state2.jokers = {}
+  state2.boss_blind_key = nil
+  state2.hand = {
+    { rank = 5, suit = "S" },
+    { rank = 5, suit = "H" },
+    { rank = 8, suit = "D" },
+  }
+  state2.selected = { [1] = true, [2] = true }
+  local chosen = game.selected_cards(state2)
+  local proj = game.calculate_projection(state2, chosen)
+  assert_equals(proj.hand_type.id, "PAIR", "should detect PAIR")
+  assert_equals(proj.hand_level, 2, "hand level should be 2")
+  -- PAIR base 10 chips, 2 mult + level 2: +20 chips, +2 mult = 30 chips, 4 mult = 120
+  assert_equals(proj.total_chips, 30, "chips should include hand level bonus")
+  assert_equals(proj.total_mult, 4, "mult should include hand level bonus")
+  assert_equals(proj.total, 120, "total should reflect hand level bonuses")
 end
 
 run()

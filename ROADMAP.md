@@ -30,9 +30,11 @@ Goal: meta decisions between blinds and an economy that shapes deck growth.
 
 Goal: long-term replayability and unlock depth.
 
-- [ ] Expanded joker pool with trigger categories
-- [ ] Consumables/events (tarot-like one-shot effects)
-- [ ] Blind variants and boss modifiers
+- [x] Expanded joker pool with trigger categories (13 jokers across 5 categories)
+- [x] Consumables/events (8 planet cards + 4 tarot cards)
+- [x] Blind variants and boss modifiers (6 boss blinds)
+- [x] Card enhancements (foil, holo, polychrome)
+- [x] Hand level upgrade system via planet consumables
 - [ ] Unlock tree and achievement conditions
 - [ ] Saved profile progression and unlock persistence
 - [ ] Run history browser
@@ -59,7 +61,7 @@ Goal: high-confidence gameplay changes with fast regression feedback.
 - [x] Deterministic simulation tests for multi-turn scenarios
 - [x] Golden tests for projection outputs (joker combinations)
 - [x] Regression tests for blind progression and economy phases
-- [ ] Lua version matrix in CI (`5.1`, `5.4`)
+- [x] Lua version matrix in CI (`5.1`, `5.4`)
 
 ## MU1 - Visual Foundation
 
@@ -143,12 +145,12 @@ Goal: make strategic info scannable at a glance.
 
 Goal: make outcomes feel rewarding and understandable.
 
-- [ ] Add run end screen (win/loss, ante reached, key stats)
-- [ ] Add post-run recap (best hand, MVP joker, efficiency metrics)
-- [ ] Add restart/continue shortcuts and focus flow
-- [ ] Add seed display/copy UX
+- [x] Add run end screen (win/loss, ante reached, key stats)
+- [x] Add post-run recap (best hand, MVP joker, efficiency metrics)
+- [x] Add restart/continue shortcuts and focus flow ([R] new run, [S] seed entry)
+- [x] Add seed display/copy UX
 - [ ] Add onboarding tips for first-time users
-- [ ] Add settings panel (theme, motion, keybind hints)
+- [x] Add settings panel (theme, motion, keybind hints)
 
 ## MT-UX - UX Testing & Validation
 

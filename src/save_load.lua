@@ -1,7 +1,7 @@
 local M = {}
 M.__index = M
 
-M.SCHEMA_VERSION = 1
+M.SCHEMA_VERSION = 2
 M.DEFAULT_PATH = "saves/run_state.lua"
 
 local function trim(text)
@@ -12,10 +12,17 @@ local function shallow_copy_card(card)
   if type(card) ~= "table" then
     return nil
   end
-  return {
+  local copy = {
     rank = card.rank,
     suit = card.suit,
   }
+  if card.enhancement then
+    copy.enhancement = tostring(card.enhancement)
+  end
+  if card.face_down then
+    copy.face_down = true
+  end
+  return copy
 end
 
 local function copy_cards(cards)
@@ -103,6 +110,13 @@ local function copy_shop(shop)
             price = tonumber(offer.price) or 0,
             rarity = offer.rarity,
           }
+        elseif offer.type == "consumable" then
+          out.offers[idx] = {
+            type = "consumable",
+            consumable_key = offer.consumable_key,
+            price = tonumber(offer.price) or 0,
+            rarity = offer.rarity,
+          }
         else
           out.offers[idx] = {
             type = "joker",
@@ -152,6 +166,10 @@ local function encode_state(game, state)
     hand = copy_cards(state.hand),
     selected = copy_numeric_bool_map(state.selected),
     jokers = copy_string_array(state.jokers),
+    consumables = copy_string_array(state.consumables or {}),
+    hand_levels = safe_deep_copy(state.hand_levels or {}),
+    boss_blind_key = state.boss_blind_key and tostring(state.boss_blind_key) or nil,
+    last_hand_type = state.last_hand_type and tostring(state.last_hand_type) or nil,
     owned_cards = copy_cards(state.owned_cards),
     deck_cards = copy_cards(state.deck_cards),
     inventory = inventory,
@@ -188,6 +206,10 @@ local function decode_state(game, encoded)
   state.hand = copy_cards(encoded.hand)
   state.selected = copy_numeric_bool_map(encoded.selected)
   state.jokers = copy_string_array(encoded.jokers)
+  state.consumables = copy_string_array(encoded.consumables or {})
+  state.hand_levels = safe_deep_copy(encoded.hand_levels or {})
+  state.boss_blind_key = encoded.boss_blind_key and tostring(encoded.boss_blind_key) or nil
+  state.last_hand_type = encoded.last_hand_type and tostring(encoded.last_hand_type) or nil
   state.owned_cards = copy_cards(encoded.owned_cards)
   state.deck_cards = copy_cards(encoded.deck_cards)
   state.game_over = encoded.game_over == true
@@ -395,6 +417,15 @@ local function migrate_payload(raw_payload, current_schema)
         meta = payload.meta or {},
       }
       schema = 1
+    elseif schema == 1 then
+      -- v1 → v2: add consumables, hand_levels, boss_blind_key, last_hand_type, card enhancements
+      local gs = payload.game_state or {}
+      gs.consumables = gs.consumables or {}
+      gs.hand_levels = gs.hand_levels or {}
+      gs.boss_blind_key = gs.boss_blind_key or nil
+      gs.last_hand_type = gs.last_hand_type or nil
+      payload.schema_version = 2
+      schema = 2
     else
       return nil, ("missing_migration_%d_to_%d"):format(schema, schema + 1)
     end

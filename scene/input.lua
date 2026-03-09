@@ -60,6 +60,16 @@ function M.install(GameScene, game)
   end
 
   function GameScene:keypressed(key)
+    -- Settings panel toggle
+    if key == "o" then
+      self.settings_open = not self.settings_open
+      return
+    end
+    if key == "escape" and self.settings_open then
+      self.settings_open = false
+      return
+    end
+
     if key == "f1" then
       if self.ui_state and self.ui_state.toggle_debug_overlay then
         self.ui_state:toggle_debug_overlay()
@@ -148,6 +158,11 @@ function M.install(GameScene, game)
       return
     end
 
+    -- Block gameplay inputs while settings panel is open
+    if self.settings_open then
+      return
+    end
+
     if key == "k" then
       self.seed_input_mode = true
       self.seed_buffer = self.current_seed
@@ -157,6 +172,16 @@ function M.install(GameScene, game)
     if key == "g" then
       self:apply_seed("", true)
       push_message(self, ("Generated new seed: %s"):format(self.current_seed), "info", "seed")
+      return
+    end
+
+    -- Consumable use keys (U = slot 1, I = slot 2)
+    if key == "u" then
+      self:enqueue_action("use_consumable_1")
+      return
+    end
+    if key == "i" then
+      self:enqueue_action("use_consumable_2")
       return
     end
 
@@ -242,8 +267,13 @@ function M.install(GameScene, game)
     end
 
     if self.run_result then
-      if key == "return" or key == "kpenter" or key == "space" then
+      if key == "return" or key == "kpenter" or key == "space" or key == "r" then
         self:enqueue_action("new_run")
+      elseif key == "s" then
+        self.run_result = nil
+        self.seed_input_mode = true
+        self.seed_buffer = self.current_seed
+        push_message(self, "Seed entry mode: type seed and press Enter.", "info", "seed")
       end
       return
     end

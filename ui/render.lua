@@ -195,8 +195,14 @@ local function draw_metric_block(ctx, x, y, w, h, title, value, opts)
   love.graphics.printf(tostring(value or ""), x + 8, y + math.floor((h - fonts.ui:getHeight()) * 0.5), w - 16, "left")
 end
 
-local function blind_special_rule(blind)
+local function blind_special_rule(blind, state, game_mod)
   local bid = blind and blind.id or ""
+  if bid == "boss" and state and state.boss_blind_key and game_mod then
+    local boss = game_mod.BOSS_BLINDS and game_mod.BOSS_BLINDS[state.boss_blind_key]
+    if boss then
+      return ("Boss: %s — %s"):format(boss.name, boss.description)
+    end
+  end
   if bid == "small" then
     return "Rule: Baseline blind."
   end
@@ -563,7 +569,7 @@ local function draw_feedback(ctx, area, panel_alpha)
     border_width = 2,
     shadow = 0,
   })
-  local blind_rule = blind_special_rule(blind):gsub("^Rule:%s*", "")
+  local blind_rule = blind_special_rule(blind, state, game):gsub("^Rule:%s*", "")
   local blind_line = ("%s  |  Target %s  |  %s"):format(
     (blind.id or "small"):upper(),
     short_number(target),
@@ -593,12 +599,17 @@ local function draw_feedback(ctx, area, panel_alpha)
     local joker_chips = projection.total_chips - projection.base_chips
     local joker_mult = projection.total_mult - projection.base_mult
     local delta_total = projection.total - base_total
-    local formula = ("(%d %+d) x (%d %+d) = %d"):format(
+    local x_mult = projection.x_mult or 1
+    local x_mult_suffix = x_mult > 1 and (" x%.1f"):format(x_mult) or ""
+    local level_suffix = (projection.hand_level or 0) > 0 and (" Lv%d"):format(projection.hand_level) or ""
+    local formula = ("(%d %+d) x (%d %+d)%s = %d%s"):format(
       projection.base_chips,
       joker_chips,
       projection.base_mult,
       joker_mult,
-      projection.total
+      x_mult_suffix,
+      projection.total,
+      level_suffix
     )
     local sequenced_alpha = 1
     if not ctx.reduced_motion then
@@ -711,9 +722,10 @@ local function draw_hand(ctx, area, panel_alpha)
     })
 
     -- Card flip: scaleX based on flip progress (0=face-down, 1=face-up)
+    -- THE_MARK boss hides face cards (face_down flag on card data)
     local flip_t = visual.flip or 1
     local flip_scaleX = math.abs(flip_t * 2 - 1)
-    local is_face_up = flip_t >= 0.5
+    local is_face_up = flip_t >= 0.5 and not card.face_down
     local center_x = draw_x + visual.w * 0.5
 
     love.graphics.setColor(1, 1, 1, visual.alpha)
@@ -745,6 +757,44 @@ local function draw_hand(ctx, area, panel_alpha)
       love.graphics.polygon("fill", cx, cy - diamond_h, cx + diamond_w, cy, cx, cy + diamond_h, cx - diamond_w, cy)
     end
 
+    -- Card enhancement overlays (Foil / Holo / Polychrome)
+    if is_face_up and card.enhancement then
+      local enh = card.enhancement
+      local enh_color, enh_label
+      if enh == "foil" then
+        enh_color = { 0.0, 0.898, 1.0, 0.85 }
+        enh_label = "FOIL"
+      elseif enh == "holo" then
+        enh_color = { 1.0, 0.180, 0.820, 0.85 }
+        enh_label = "HOLO"
+      elseif enh == "polychrome" then
+        local now = love.timer.getTime()
+        local hue = (now * 0.8) % 1
+        local r = 0.5 + 0.5 * math.sin(hue * 6.283)
+        local g = 0.5 + 0.5 * math.sin((hue + 0.33) * 6.283)
+        local b = 0.5 + 0.5 * math.sin((hue + 0.66) * 6.283)
+        enh_color = { r, g, b, 0.85 }
+        enh_label = "POLY"
+      end
+      if enh_color then
+        -- Colored border glow
+        PixelKit.outline(draw_x - 1, draw_y - 1, visual.w + 2, visual.h + 2, enh_color, 2)
+        -- Overlay shimmer on the card face
+        love.graphics.setColor(enh_color[1], enh_color[2], enh_color[3], 0.08 * visual.alpha)
+        love.graphics.rectangle("fill", draw_x, draw_y, visual.w, visual.h)
+        -- Enhancement label at bottom-right of card
+        love.graphics.setColor(enh_color)
+        love.graphics.setFont(fonts.small)
+        local lbl_w = fonts.small:getWidth(enh_label) + 8
+        local lbl_x = draw_x + visual.w - lbl_w - 4
+        local lbl_y = draw_y + visual.h - 18
+        love.graphics.setColor(0.04, 0.02, 0.10, 0.88)
+        love.graphics.rectangle("fill", lbl_x, lbl_y, lbl_w, 14)
+        love.graphics.setColor(enh_color)
+        love.graphics.print(enh_label, lbl_x + 4, lbl_y + 1)
+      end
+    end
+
     if selected then
       if not select_glow then
         -- Fallback: procedural selection outline
@@ -762,12 +812,20 @@ local function draw_hand(ctx, area, panel_alpha)
 
     if hovered then
       local label = ctx.game.card_label and ctx.game.card_label(card) or (tostring(card.rank) .. tostring(card.suit))
+      local tip_lines = {
+        selected and "Selected for next action." or "Click to toggle selection.",
+        ("Hotkey: %d"):format(visual.index),
+      }
+      if card.enhancement then
+        local enh_names = { foil = "Foil (+50 Chips)", holo = "Holo (+10 Mult)", polychrome = "Polychrome (x1.5 Mult)" }
+        tip_lines[#tip_lines + 1] = ("Enhancement: %s"):format(enh_names[card.enhancement] or card.enhancement)
+      end
+      if card.face_down then
+        tip_lines[#tip_lines + 1] = "Face-down (boss effect)"
+      end
       hover_tooltip = {
         title = ("CARD %d  %s"):format(visual.index, label),
-        lines = {
-          selected and "Selected for next action." or "Click to toggle selection.",
-          ("Hotkey: %d"):format(visual.index),
-        },
+        lines = tip_lines,
       }
     end
   end
@@ -972,6 +1030,37 @@ local function draw_run_summary(ctx, area, panel_alpha)
   )
   love.graphics.setColor(palette.muted[1], palette.muted[2], palette.muted[3], panel_alpha or 1)
   love.graphics.printf(clipped_text(fonts.small, econ, w), x, y, w, "left")
+  y = y + 14
+
+  -- Consumable slots display
+  local cons = state.consumables or {}
+  local max_cons = game.MAX_CONSUMABLES or 2
+  local slot_labels = {}
+  for slot_i = 1, max_cons do
+    local ckey = cons[slot_i]
+    if ckey then
+      local cdef = game.CONSUMABLES and game.CONSUMABLES[ckey] or nil
+      local cname = cdef and cdef.name or ckey
+      local cat_prefix = cdef and cdef.category == "planet" and "P:" or "T:"
+      slot_labels[slot_i] = ("[%s %s%s]"):format(slot_i == 1 and "U" or "I", cat_prefix, cname)
+    else
+      slot_labels[slot_i] = ("[%s --]"):format(slot_i == 1 and "U" or "I")
+    end
+  end
+  local cons_line = "Cons " .. table.concat(slot_labels, " ")
+  local cons_color = #cons > 0 and palette.accent_alt or palette.muted
+  love.graphics.setColor(cons_color[1], cons_color[2], cons_color[3], panel_alpha or 1)
+  love.graphics.printf(clipped_text(fonts.small, cons_line, w), x, y, w, "left")
+
+  -- Boss blind indicator (when active)
+  if state.boss_blind_key and game.BOSS_BLINDS then
+    local boss = game.BOSS_BLINDS[state.boss_blind_key]
+    if boss then
+      y = y + 14
+      love.graphics.setColor(palette.warn[1], palette.warn[2], palette.warn[3], panel_alpha or 1)
+      love.graphics.printf(clipped_text(fonts.small, "BOSS: " .. boss.name, w), x, y, w, "left")
+    end
+  end
 
   if urgent.low_hands or urgent.low_discards or urgent.near_bust then
     local urgency_text = "Priority: "
@@ -1235,7 +1324,7 @@ local function draw_run_result(ctx)
 
   love.graphics.setColor(ctx.palette.accent[1], ctx.palette.accent[2], ctx.palette.accent[3], overlay_alpha)
   love.graphics.setFont(ctx.fonts.ui)
-  love.graphics.printf("Press Enter/Space or click to start a new run", x, y + panel_h - 44, panel_w, "center")
+  love.graphics.printf("[R] New Run    [S] Enter Seed    or click to continue", x, y + panel_h - 44, panel_w, "center")
 end
 
 local function draw_debug_overlay(ctx)
@@ -1283,6 +1372,92 @@ local function draw_debug_overlay(ctx)
     love.graphics.print(line, x + 12, row_y)
     row_y = row_y + 22
   end
+end
+
+local function draw_settings_overlay(ctx)
+  local overlay_alpha = (ctx.overlay_alpha and ctx.overlay_alpha.settings) or 0
+  if overlay_alpha <= 0.001 then
+    return
+  end
+
+  local w, h = love.graphics.getWidth(), love.graphics.getHeight()
+  love.graphics.setColor(0, 0, 0, 0.65 * overlay_alpha)
+  love.graphics.rectangle("fill", 0, 0, w, h)
+
+  local panel_w = math.min(520, w - 160)
+  local panel_h = math.min(480, h - 120)
+  local x = math.floor((w - panel_w) * 0.5)
+  local y = math.floor((h - panel_h) * 0.5)
+
+  PixelKit.draw_panel(x, y, panel_w, panel_h, {
+    fill = with_alpha(ctx.palette.panel, overlay_alpha),
+    border = with_alpha(ctx.palette.accent, overlay_alpha),
+    border_width = 2,
+    shadow = 4,
+    alpha = overlay_alpha,
+  })
+
+  love.graphics.setFont(ctx.fonts.title)
+  love.graphics.setColor(ctx.palette.accent[1], ctx.palette.accent[2], ctx.palette.accent[3], overlay_alpha)
+  love.graphics.printf("SETTINGS", x, y + 16, panel_w, "center")
+
+  local row_y = y + 60
+  love.graphics.setFont(ctx.fonts.ui)
+
+  -- Reduced motion toggle
+  local motion_label = ctx.reduced_motion and "ON" or "OFF"
+  love.graphics.setColor(ctx.palette.text[1], ctx.palette.text[2], ctx.palette.text[3], overlay_alpha)
+  love.graphics.print("Reduced Motion", x + 24, row_y)
+  local badge_color = ctx.reduced_motion and ctx.palette.ok or ctx.palette.muted
+  love.graphics.setColor(badge_color[1], badge_color[2], badge_color[3], overlay_alpha)
+  love.graphics.print(("[F3] %s"):format(motion_label), x + panel_w - 140, row_y)
+  row_y = row_y + 32
+
+  -- Theme toggle
+  local theme_label = (ctx.theme == "dark") and "Dark" or "Light"
+  love.graphics.setColor(ctx.palette.text[1], ctx.palette.text[2], ctx.palette.text[3], overlay_alpha)
+  love.graphics.print("Card Theme", x + 24, row_y)
+  love.graphics.setColor(ctx.palette.accent[1], ctx.palette.accent[2], ctx.palette.accent[3], overlay_alpha)
+  love.graphics.print(("[F2] %s"):format(theme_label), x + panel_w - 140, row_y)
+  row_y = row_y + 42
+
+  -- Separator
+  love.graphics.setColor(ctx.palette.muted[1], ctx.palette.muted[2], ctx.palette.muted[3], 0.3 * overlay_alpha)
+  love.graphics.rectangle("fill", x + 24, row_y, panel_w - 48, 1)
+  row_y = row_y + 12
+
+  -- Keybind reference
+  love.graphics.setFont(ctx.fonts.small)
+  love.graphics.setColor(ctx.palette.accent[1], ctx.palette.accent[2], ctx.palette.accent[3], overlay_alpha)
+  love.graphics.print("KEYBINDS", x + 24, row_y)
+  row_y = row_y + 24
+
+  local keybinds = {
+    { "SPACE", "Play selected hand" },
+    { "D", "Discard selected cards" },
+    { "R", "New run" },
+    { "1-8", "Toggle card selection" },
+    { "S / N", "Sort by suit / rank" },
+    { "U / I", "Use consumable slot 1 / 2" },
+    { "K", "Enter seed" },
+    { "G", "Random seed" },
+    { "J", "Add random joker (debug)" },
+    { "F1", "Debug overlay" },
+    { "F5 / F9", "Save / Load run" },
+    { "O", "Settings (this panel)" },
+  }
+
+  for _, bind in ipairs(keybinds) do
+    love.graphics.setColor(ctx.palette.ok[1], ctx.palette.ok[2], ctx.palette.ok[3], overlay_alpha)
+    love.graphics.print(bind[1], x + 32, row_y)
+    love.graphics.setColor(ctx.palette.text[1], ctx.palette.text[2], ctx.palette.text[3], overlay_alpha)
+    love.graphics.print(bind[2], x + 120, row_y)
+    row_y = row_y + 20
+  end
+
+  love.graphics.setColor(ctx.palette.muted[1], ctx.palette.muted[2], ctx.palette.muted[3], overlay_alpha)
+  love.graphics.setFont(ctx.fonts.small)
+  love.graphics.printf("Press [O] or [Esc] to close", x, y + panel_h - 32, panel_w, "center")
 end
 
 local function draw_shop_modal(ctx)
@@ -1351,7 +1526,30 @@ local function draw_shop_modal(ctx)
         love.graphics.print(("Card %s"):format(label), row_x + 88, row_y + 16)
         love.graphics.setColor(palette.muted[1], palette.muted[2], palette.muted[3], overlay_alpha)
         love.graphics.setFont(fonts.small)
-        love.graphics.print("Adds this card to your run deck.", row_x + 88, row_y + 48)
+        local card_desc = "Adds this card to your run deck."
+        if offer.card and offer.card.enhancement then
+          card_desc = card_desc .. (" [%s]"):format(offer.card.enhancement:upper())
+        end
+        love.graphics.print(card_desc, row_x + 88, row_y + 48)
+      elseif offer.type == "consumable" then
+        local cons = ctx.game.CONSUMABLES and ctx.game.CONSUMABLES[offer.consumable_key] or nil
+        local cname = cons and cons.name or offer.consumable_key
+        local cat = cons and cons.category or "tarot"
+        local cat_color = cat == "planet" and { 0.0, 0.898, 1.0 } or { 0.85, 0.55, 1.0 }
+        love.graphics.setColor(cat_color[1], cat_color[2], cat_color[3], overlay_alpha)
+        love.graphics.setFont(fonts.small)
+        love.graphics.print(cat:upper(), row_x + 48, row_y + 18)
+        love.graphics.setColor(palette.text[1], palette.text[2], palette.text[3], overlay_alpha)
+        love.graphics.setFont(fonts.ui)
+        love.graphics.print(cname, row_x + 88, row_y + 16)
+        love.graphics.setColor(palette.muted[1], palette.muted[2], palette.muted[3], overlay_alpha)
+        love.graphics.setFont(fonts.small)
+        love.graphics.print(cons and cons.description or "One-shot consumable.", row_x + 88, row_y + 48)
+        -- Show slots remaining
+        local slots_used = #(ctx.state.consumables or {})
+        local max_slots = ctx.game.MAX_CONSUMABLES or 2
+        love.graphics.setColor(palette.muted[1], palette.muted[2], palette.muted[3], overlay_alpha)
+        love.graphics.print(("Slots: %d/%d"):format(slots_used, max_slots), row_x + 88, row_y + 68)
       else
         local joker = ctx.game.JOKERS[offer.joker_key]
         local name = joker and joker.name or offer.joker_key
@@ -1375,7 +1573,7 @@ local function draw_shop_modal(ctx)
     row_y = row_y + row_h + 12
   end
 
-  local controls = "1/2/3 buy | E reroll | Z/X/V deck edit | Q..Y sell jokers | A..G sell cards | C continue"
+  local controls = "1/2/3 buy | E reroll | U/I use consumable | Z/X/V deck edit | Q..Y sell jokers | C continue"
   love.graphics.setColor(palette.warn[1], palette.warn[2], palette.warn[3], overlay_alpha)
   love.graphics.setFont(fonts.small)
   love.graphics.printf(clipped_text(fonts.small, controls, panel_w - 48), x + 24, y + panel_h - 56, panel_w - 48, "center")
@@ -1474,6 +1672,7 @@ function Render.draw(ctx)
   draw_shop_modal(ctx)
   draw_seed_prompt(ctx)
   draw_run_result(ctx)
+  draw_settings_overlay(ctx)
   draw_debug_overlay(ctx)
 
   if not (ctx.state.shop and ctx.state.shop.active) and not ctx.run_result and not ctx.seed_input_mode then

@@ -12,6 +12,18 @@ Tunables.run = {
   hand_size = 8,
   max_select = 5,
   max_jokers = 5,
+  max_consumables = 2,
+}
+
+Tunables.hand_level_bonus = {
+  chips_per_level = 10,
+  mult_per_level = 1,
+}
+
+Tunables.enhancements = {
+  foil_chips = 50,
+  holo_mult = 10,
+  poly_x_mult = 1.5,
 }
 
 Tunables.blinds = {
@@ -30,8 +42,9 @@ Tunables.shop = {
   offer_count = 3,
   reroll_base_cost = 2,
   reroll_cost_step = 1,
-  joker_offer_weight = 70,
+  joker_offer_weight = 50,
   card_offer_weight = 30,
+  consumable_offer_weight = 20,
   prices = {
     common = 6,
     uncommon = 8,
